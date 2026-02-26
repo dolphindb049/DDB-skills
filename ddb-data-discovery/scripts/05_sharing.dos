@@ -1,0 +1,43 @@
+// 脚本功能：加载共享表 (Loading to Shared Memory) 
+// 包含：数据共享 (IPC), Stream Source (流源头), 跨 Session 访问
+// 适用场景：需要让多个用户/任务共享一块内存数据，或模拟流计算源表
+
+// --- 配置参数 (USER CONFIG) ---
+dbPath = "dfs://stockMinKSH"          
+tableName = "stockMinKSH_v2" 
+sharedTableName = "sharedStockTable" // 全局唯一的共享表名
+
+// 1. 查询关键数据 (Data Extraction)
+// 假设我们要共享的是 2021 年的数据，用于后续的指标分析服务
+// 这样可以避免每次计算都走 DFS 磁盘 IO
+db = database(dbPath)
+t = loadTable(db, tableName)
+
+print("加载数据至内存...")
+// 演示加载 1000 行，实际可以根据内存大小加载几百万行
+data = select * from t where SecurityID="000001.SZ" limit 1000
+
+// 2. 共享内存表 (Share Memory Table)
+// share(table, sharedName) 函数非常关键
+// 它会让这个表变成全局可见，直到服务器重启或显式 undef
+try {
+    share(data, sharedTableName)
+    print("✅ 表已共享: " + sharedTableName)
+    print("现在可以在任何新 Session 中直接查询: select count(*) from " + sharedTableName)
+} catch(ex) {
+    if(existsTable(sharedTableName)) {
+        print("⚠️ 表已存在，无需重复共享。")
+    } else {
+        print("❌ 共享失败: " + ex)
+    }
+}
+
+// 3. 验证共享状态 (Verification)
+// 使用 `objs(true)` 查看共享对象列表
+print("\n--- 当前共享对象列表 ---")
+info = objs(true)
+print(select name, type, rows, bytes, owner from info where name=sharedTableName)
+
+// 4. 清理共享表 (Cleanup, Optional)
+// 如果不再需要，可以用 undef("sharedStockTable", SHARED) 释放内存
+// undef(sharedTableName, SHARED)

@@ -1,0 +1,47 @@
+// 脚本功能：执行分层查询 (Layered Queries) 进行初步数据探索
+// 包含：采样 (Top N)，离散值分布 (Value Counts)，基础统计
+// 适用场景：快速了解数据内容、清洗前检查数据质量
+// 依赖：假设目标表至少有几行数据，否则报错
+
+// --- 配置参数 (USER CONFIG) ---
+dbPath = "dfs://stockMinKSH"          
+tableName = "stockMinKSH_v2"          
+primaryKey = "DateTime"              // 用于排序的字段，如 DateTime, create_time, SecurityID
+
+// 1. 获取表句柄 (Get Handle)
+db = database(dbPath)
+t = loadTable(db, tableName)
+
+print("正在探索表: " + tableName)
+
+// 2. 随机采样 10 条 (Head)
+// 默认按照主键排序的前 10 条，快速了解单条记录长什么样
+print("\n--- 采样: 前 10 条记录 ---")
+// 注意：DolphinDB 脚本中变量替换使用类似于 Shell 的方式或拼接 SQL
+// 这里为了作为通用脚本，我们直接用 exec
+select_query = "select top 10 * from t order by " + primaryKey
+print(parseExpr(select_query).eval())
+
+// 3. 统计总数 (Total Count)
+// 这是一个必须的操作，让你知道处理的数量级是百万还是亿
+// `.count()` 是最快的
+print("\n--- 记录总数 (Count) ---")
+total_rows = t.count()
+print(total_rows)
+
+// 4. 数据分布概览 (Distribution Sketch)
+// 如果有特定的类别字段（如 Status, Name），可以进行分组计数
+// 这里我们尝试自动寻找第一个 SYMBOL 列
+cols = t.schema().colDefs
+symbol_cols = exec name from cols where typeString in ["SYMBOL", "STRING"] limit 1;
+
+if(symbol_cols.count() > 0) {
+    categoryCol = symbol_cols[0]
+    print("\n--- 类别分布: Top 5 [" + categoryCol + "] ---")
+    // 构建动态 SQL: select count(*) as cnt from t group by X order by cnt desc limit 5
+    // 这展示了 DolphinDB 元编程的强大之处
+    query_str = "select count(*) as cnt from t group by " + categoryCol + " order by cnt desc limit 5"
+    print(parseExpr(query_str).eval())
+} else {
+    print("未发现 SYMBOL/STRING 列，跳过分类统计。")
+}

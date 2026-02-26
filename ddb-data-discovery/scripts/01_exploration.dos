@@ -1,0 +1,30 @@
+// 脚本功能：列出集群所有 DFS 数据库和表
+// 适用场景：初次连接DolphinDB集群，快速了解所有可用数据资产
+// 注意事项：可能需要管理员权限才能查看完整列表；getChunksMeta 可能会非常耗时，建议在非高峰期使用
+
+// 1. 获取元数据 (Metadata Inspection)
+// `getChunksMeta()` 返回集群中所有数库块(chunks)的元数据表
+// 这是一个非常底层的函数，能显示所有已经入库的数据块信息
+t = getChunksMeta()
+
+// 2. 提取并去重 DFS 路径 (Unique Path Extraction)
+// 每个 chunk 都有一个 dfsPath，我们通过去重来获取所有的数据库/分区路径
+// 这一步能让我们知道系统里到底有哪些库
+// 注意：dfspath 列可能是 STRING 类型
+all_paths = select distinct dfsPath from t
+
+// 3. 统计发现的路径数量
+print("--- 发现的 DFS 路径数量 ---")
+print(all_paths.count())
+
+// 4. 展示前 50 个路径
+// 供用户快速浏览
+print("\n--- 路径预览 (前 50 条) ---")
+print(select top 50 * from all_paths)
+
+// 5. 自动推断潜在的数据库
+// 这一步尝试列出所有看起来像数据库根目录的路径（通常是第一级或第二级目录）
+// 这对于没有文档的新环境非常有帮助
+print("\n--- 潜在的数据库列表 (需手动验证) ---")
+// 这里我们只是简单展示，实际探索时可以尝试 `database(path)` 连接
+// 你可以复制下面的路径，替换后续脚本中的 database URL

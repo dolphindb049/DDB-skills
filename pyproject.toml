@@ -1,0 +1,23 @@
+[project]
+name = "ddb-skills"
+version = "0.1.0"
+description = "A collection of DolphinDB development skills and tools."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "dolphindb>=3.0.0",
+    "lancedb>=0.1.0",
+    "llama-index>=0.10.0",
+    "llama-index-embeddings-huggingface>=0.1.0",
+    "llama-index-readers-file>=0.1.0",
+    "llama-index-retrievers-bm25>=0.1.0",
+    "llama-index-vector-stores-lancedb>=0.1.0",
+    "mcp>=1.0.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "torch>=2.0.0",
+    "uvicorn>=0.20.0",
+]
+
+[tool.uv]
+package = true

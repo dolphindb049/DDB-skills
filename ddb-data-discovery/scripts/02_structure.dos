@@ -1,0 +1,37 @@
+// 脚本功能：查看 DFS 数据库表结构 (Schema)
+// 包含：字段名、数据类型、敏感标记等
+// 适用场景：需要编写查询、ETL 或了解数据字典时
+
+// --- 配置参数 (USER CONFIG) ---
+// 请在这里修改为你自己的库表路径
+dbPath = "dfs://stockMinKSH"          // 数据库路径，例如 dfs://stockMinKSH, dfs://trpg_game
+tableName = "stockMinKSH_v2"          // 表名，例如 stockMinKSH_v2, game_logs
+
+print("正在连接数据库: " + dbPath)
+try {
+    // 1. 连接数据库
+    db = database(dbPath)
+
+    // 2. 加载表 (Lazy Load)
+    // 这一步仅仅加载元数据，并不会读取全部数据到内存，非常快且安全
+    t = loadTable(db, tableName)
+
+    // 3. 打印 Schema
+    // 这是一个非常详细的元数据表，包含了所有列定义
+    print("\n--- 表结构 (Schema Definition) ---")
+    schema_tb = t.schema().colDefs
+    print(schema_tb)
+    
+    // 4. 判断是否为分区表
+    // 分区表通常会有 PartitionScheme 列
+    print("\n--- 分区信息 (Partition Info) ---")
+    try {
+       print(t.schema().partitionSchema)
+    } catch(ex) {
+       print("非分区表或无法获取分区信息: " + ex)
+    }
+
+} catch(ex) {
+    print("❌ 错误：无法连接到数据库或表不存在。请检查 dbPath 和 tableName 配置。")
+    print("错误详情: " + ex)
+}
