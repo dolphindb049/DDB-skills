@@ -11,80 +11,48 @@ metadata:
 
 本技能包提供了一套基于 Python 的 DolphinDB 执行环境，你可以直接执行dolphindb脚本文件（.dos）或代码片段，或者持久化会话，让你在多次执行中保留变量和函数定义。
 
-## 🏗️ 核心架构
+## 🚀 极简执行指南 (AI Agent 必读)
 
-本工具采用 **Client-Server** 模式来解决“脚本执行完即销毁”的问题。
+作为 AI Agent，当你需要执行 DolphinDB 代码时，**首选使用命令行传参的直连模式**，这样最稳定且不需要依赖任何配置文件。
 
-```mermaid
-graph LR
-    A[Terminal / VSCode] -- "python execute.py script.dos" --> B(Client: execute.py)
-    B -- "TCP 65432 (Code String)" --> C{Server: server.py}
-    C -- "Session (Keep-Alive)" --> D[DolphinDB Server]
-    D -- "Result" --> C
-    C -- "Result String" --> B
-    B -- "Print" --> A
+### 1. 准备工作
+确保系统已安装 `uv` (如果没有，请先执行 `pip install uv`)。
+本技能包的脚本自带依赖声明，`uv run` 会自动处理包下载。
+
+### 2. 快速执行代码 (推荐)
+使用 `execute.py` 并通过参数传入连接信息。
+
+**执行代码片段:**
+```powershell
+# 替换为你实际的 host 和 port
+uv run ./skills/execute-dlang/scripts/ddb_runner/execute.py -c "1+1" --host 192.168.100.43 --port 7739 --user admin --password 123456
 ```
 
-### 为什么需要 `server.py`?
-普通的 `python execute.py` 每次运行都会创建一个新的连接，执行完脚本后连接关闭，临时变量（如 `t = table(...)`）随之消失。
-**`server.py`** 启动后会建立一个长连接，并一直持有该会话。所有发送给它的代码都在**同一个会话**中执行。
+**执行 .dos 文件:**
+```powershell
+uv run ./skills/execute-dlang/scripts/ddb_runner/execute.py path/to/your_script.dos --host 192.168.100.43 --port 7739
+```
 
 ---
 
-## 🚀 快速上手 Guide
+## 🔄 高级用法：持久化会话 (Server 模式)
 
-### 1. 环境准备
-本工具支持使用 `uv` 极简执行（脚本内已包含依赖声明，无需手动安装包）。
-如果你没有安装 `uv`，请先安装：`pip install uv`。
+如果你需要分步执行代码，并且**保留上下文变量**（例如第一步定义了函数，第二步要调用），你需要使用 Server 模式。
 
-创建并，修改 `scripts/ddb_runner/.env` ，确保包含正确的数据库连接信息：
-```ini
-DDB_HOST=ip_address
-DDB_PORT=port
-DDB_USER=admin
-DDB_PASSWORD=123456
-```
-
-### 2. 快速执行脚本 (Client)
-在主工作终端中，使用 `uv run` 发送代码（默认每次执行创建新会话）：
-
-**方式 A: 执行文件 (.dos)**
+### 步骤 1: 启动后台 Server
+在终端中启动 Server（它会保持运行）：
 ```powershell
-uv run scripts/ddb_runner/execute.py scripts/my_script.dos
+uv run ./skills/execute-dlang/scripts/ddb_runner/server.py --host 192.168.100.43 --port 7739
 ```
+*(看到 `[Info] Server listening on 127.0.0.1:65432` 表示成功)*
 
-**方式 B: 执行代码片段**
+### 步骤 2: 使用 `--use-server` 发送代码
 ```powershell
-uv run scripts/ddb_runner/execute.py -c "x = 1..100; y = x * 2; avg(y)"
-```
+# 定义变量
+uv run ./skills/execute-dlang/scripts/ddb_runner/execute.py -c "x = 1..100; y = x * 2;" --use-server
 
-**方式 C: 命令行传参连接**
-如果不使用 `.env` 文件，也可以直接通过参数传递连接信息：
-```powershell
-uv run scripts/ddb_runner/execute.py -c "1+1" --host 192.168.1.100 --port 8848 --user admin --password 123456
-```
-
-### 3. 使用持久化会话 (Server)
-如果你想保留变量和上下文，需要先启动 Server，然后使用 `--use-server` 参数：
-
-**步骤 1: 启动服务端**
-在单独的终端中运行：
-```powershell
-# 启动服务端（建议挂在后台或单独的 Terminal tab）
-uv run scripts/ddb_runner/server.py
-# 或者通过参数指定连接信息
-uv run scripts/ddb_runner/server.py --host 192.168.1.100 --port 8848
-```
-> **成功标志**: 看到 `Server listening on 127.0.0.1:65432`。此时它已连接到 DDB 并准备就绪。
-
-**步骤 2: 使用 `--use-server` 执行**
-```powershell
-# 定义一个变量
-uv run scripts/ddb_runner/execute.py -c "x = 1..100; y = x * 2;" --use-server
-
-# 在下一次执行中调用该变量（因为 Session 是持久的）
-uv run scripts/ddb_runner/execute.py -c "avg(y)" --use-server
-# 输出: 101
+# 调用变量
+uv run .github/skills/execute-dlang/scripts/ddb_runner/execute.py -c "avg(y)" --use-server
 ```
 
 ---
@@ -102,7 +70,11 @@ uv run scripts/ddb_runner/execute.py -c "avg(y)" --use-server
     *   **显式返回**: 在脚本最后一行单独写上通过想要查看的变量名（例如最后一行写 `resultTable`）。
     *   **尽量少用 print**: 除非你在调试服务端日志，否则尽量让脚本**返回**对象，由 Python 端打印。
 
-### 2. 长连接断开与变量丢失
+### 2. 找不到脚本路径
+*   **现象**: 提示 `File not found`。
+*   **解决方案**: 脚本现在会自动尝试相对于当前工作目录解析路径。如果仍然找不到，请使用**绝对路径**或**相对于工作区根目录的完整路径**。
+
+### 3. 长连接断开与变量丢失
 *   **现象**: 之前定义的 `function` 或 `table` 找不到了。
 *   **原因**: `server.py` 可能因为网络波动或报错重启了。
 *   **解决方案**: 如果发现变量丢失，请检查 `server.py`终端是否有错误堆栈。重新运行初始化脚本。

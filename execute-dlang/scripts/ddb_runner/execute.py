@@ -127,9 +127,15 @@ def run_code(session, code_str, args, print_output=True, use_server=False):
 
 def run_dos_file(session, file_path, args, use_server=False):
     """Read and execute a .dos file."""
+    # Try to resolve relative paths against workspace root if possible
     if not os.path.exists(file_path):
-        print(f"[Error] File not found: {file_path}")
-        return None
+        # Try to find it relative to the current working directory
+        cwd_path = os.path.join(os.getcwd(), file_path)
+        if os.path.exists(cwd_path):
+            file_path = cwd_path
+        else:
+            print(f"[Error] File not found: {file_path}")
+            return None
         
     try:
         with open(file_path, "r", encoding="utf-8") as f:
