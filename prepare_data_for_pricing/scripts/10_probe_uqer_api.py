@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from 00_data_pricing_common import DatayesClient, load_config
+from pricing_common import DatayesClient, load_config
 
 
 def main() -> None:

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from lib_data_pricing import DatayesClient, load_config, pick_fixed_bond_rows
+from pricing_common import DatayesClient, load_config, pick_fixed_bond_rows
 
 
 def _first_row(df: pd.DataFrame) -> dict:

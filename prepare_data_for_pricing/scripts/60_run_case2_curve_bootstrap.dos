@@ -1,6 +1,6 @@
 // Data Pricing Skill - Step 5: 案例2（bondYieldCurveBuilder 反推曲线 + 定价）
 // 前置：
-// 1) 已执行 01_create_schema.dos
+// 1) 已执行 30_create_pricing_schema.dos
 // 2) Python已导入 case2_bond_basket
 
 login(`admin, `123456)

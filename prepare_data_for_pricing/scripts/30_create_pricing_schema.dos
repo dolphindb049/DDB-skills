@@ -1,6 +1,6 @@
 // Data Pricing Skill - Step 1: 创建数据库与全量表结构（含注释）
 // 用法（execute-dlang）：
-// uv run .github/skills/execute-dlang/scripts/ddb_runner/execute.py .github/DDB-skills/data_pricing/dos/01_create_schema.dos --host 127.0.0.1 --port 8848 --user admin --password 123456
+// uv run .github/skills/execute-dlang/scripts/ddb_runner/execute.py .github/skills/prepare_data_for_pricing/scripts/30_create_pricing_schema.dos --host 127.0.0.1 --port 8848 --user admin --password 123456
 
 login(`admin, `123456)
 

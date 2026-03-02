@@ -1,6 +1,6 @@
 // Data Pricing Skill - Step 4: 案例1（IRS曲线 + bondPricer）
 // 前置：
-// 1) 已执行 01_create_schema.dos
+// 1) 已执行 30_create_pricing_schema.dos
 // 2) Python已导入 raw_irs_curve/raw_bond_info/raw_cfets_valuation
 
 login(`admin, `123456)

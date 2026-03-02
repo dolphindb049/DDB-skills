@@ -1,6 +1,6 @@
-# 通联 API 目录与实测说明（data_pricing）
+# 通联 API 目录与实测说明（prepare_data_for_pricing）
 
-> 数据来源：`scripts/01_probe_api.py` 实测输出 `sample_data/api_probe_summary.json`（日期默认 `2026-01-05`）。
+> 数据来源：`scripts/10_probe_uqer_api.py` 实测输出 `reference/sample_data/api_probe_summary.json`（日期默认 `2026-01-05`）。
 
 ## 1) 债券与估值主链路（本 skill 核心）
 

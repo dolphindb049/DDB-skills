@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from lib_data_pricing import connect_ddb, load_config, read_json_records
+from pricing_common import connect_ddb, load_config, read_json_records
 
 
 def _curve_date(trade_date: pd.Timestamp, tenor: str) -> pd.Timestamp:
