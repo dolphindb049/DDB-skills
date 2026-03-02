@@ -1,0 +1,51 @@
+
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>average_monthly_dazzling_volatility Report</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; }
+    h1,h2 { margin: 10px 0; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+    th,td { border: 1px solid #ddd; padding: 8px; font-size: 13px; }
+    th { background: #f4f4f4; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .card { border:1px solid #eee; border-radius:8px; padding:12px; }
+  </style>
+</head>
+<body>
+  <h1>因子评价单页报告</h1>
+  <div class="card">
+    <p><b>状态</b>: success</p>
+    <p><b>因子</b>: average_monthly_dazzling_volatility</p>
+    <p><b>区间</b>: 2023-02-06 ~ 2025-12-03</p>
+    <p><b>样本行数</b>: 3617710</p>
+  </div>
+
+  <h2>描述性统计（分层）</h2>
+  <table><thead><tr><th>quantile</th><th>min</th><th>max</th><th>std</th><th>count</th><th>pct</th></tr></thead><tbody><tr><td>1</td><td>2e-06</td><td>0.000662</td><td>9e-05</td><td>712797</td><td>20.003951</td></tr><tr><td>2</td><td>0.000243</td><td>0.001101</td><td>0.000131</td><td>712516</td><td>19.996065</td></tr><tr><td>3</td><td>0.000347</td><td>0.001615</td><td>0.000195</td><td>712534</td><td>19.996571</td></tr><tr><td>4</td><td>0.000443</td><td>0.002206</td><td>0.000271</td><td>712516</td><td>19.996065</td></tr><tr><td>5</td><td>0.000559</td><td>0.957541</td><td>0.011023</td><td>712918</td><td>20.007347</td></tr></tbody></table>
+
+  <h2>IC 分析</h2>
+  <table><thead><tr><th>horizon</th><th>IC_Mean</th><th>IC_Std</th><th>IC_Risk_Adjusted</th><th>IC_t_stat</th></tr></thead><tbody><tr><td>Forward Returns 1D</td><td>-0.002484</td><td>0.035301</td><td>-0.070365</td><td>-1.832207</td></tr><tr><td>Forward Returns 5D</td><td>-0.004779</td><td>0.032605</td><td>-0.146562</td><td>-3.816257</td></tr><tr><td>Forward Returns 10D</td><td>-0.005827</td><td>0.032532</td><td>-0.179114</td><td>-4.663842</td></tr></tbody></table>
+
+  <h2>收益分析（bps）</h2>
+  <table><thead><tr><th>metric</th><th>1D</th><th>5D</th><th>10D</th></tr></thead><tbody><tr><td>Mean_Period_Wise_Return_Top_Quantile_bps</td><td>13.5919</td><td>31.4204</td><td>64.8529</td></tr><tr><td>Mean_Period_Wise_Return_Bottom_Quantile_bps</td><td>5.8259</td><td>38.5858</td><td>72.5529</td></tr><tr><td>Mean_Period_Wise_Spread_bps</td><td>7.766</td><td>-7.1654</td><td>-7.7</td></tr></tbody></table>
+
+  <div class="grid">
+    <div id="icbar" class="card" style="height:360px"></div>
+    <div id="spread" class="card" style="height:360px"></div>
+  </div>
+
+  <script>
+    const icLabels = ["Forward Returns 1D", "Forward Returns 5D", "Forward Returns 10D"];
+    const icVals = [-0.002484, -0.004779, -0.005827];
+    Plotly.newPlot('icbar', [{x: icLabels, y: icVals, type:'bar', name:'IC_Mean'}], {title:'IC Mean by Horizon'});
+
+    const retRows = [{"metric": "Mean_Period_Wise_Return_Top_Quantile_bps", "forward_returns_1D": 13.5919, "forward_returns_5D": 31.4204, "forward_returns_10D": 64.8529}, {"metric": "Mean_Period_Wise_Return_Bottom_Quantile_bps", "forward_returns_1D": 5.8259, "forward_returns_5D": 38.5858, "forward_returns_10D": 72.5529}, {"metric": "Mean_Period_Wise_Spread_bps", "forward_returns_1D": 7.766, "forward_returns_5D": -7.1654, "forward_returns_10D": -7.7}];
+    const spread = retRows.find(r => r.metric === 'Mean_Period_Wise_Spread_bps');
+    Plotly.newPlot('spread', [{x:['1D','5D','10D'], y:[spread.forward_returns_1D, spread.forward_returns_5D, spread.forward_returns_10D], type:'bar', name:'Spread bps'}], {title:'Top-Bottom Spread (bps)'});
+  </script>
+</body>
+</html>

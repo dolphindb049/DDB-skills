@@ -1,4 +1,10 @@
-# 并行子 Agent Prompt 模板
+# 并行子 Agent Prompt 模板（Agent/Skill 分层版）
+
+## 分层原则
+
+- Skill 层：公式提取、评价、可视化等可复用能力。
+- Agent 层：某篇研报复现任务的编排与交付。
+- Agent 最终必须返回单页网页链接（HTTP）。
 
 ## Agent A（研报逻辑提取）
 
@@ -44,7 +50,7 @@
 
 约束：
 
-- 使用 `dfs://day_factor`。
+- 先探测库表：`dfs://day_factor` 不存在时自动切换到 `dfs://stock_daily`。
 - 保证返回字段：`trade_date`, `securityid`, `factor_name`, `factor_value`。
 - 不允许跳过错误，不允许空跑。
 
@@ -54,5 +60,6 @@
 
 1. 运行因子评价。
 2. 导出评价结果。
-3. 调用 Python 脚本生成报告。
-4. 给出“是否建议上线”结论。
+3. 调用网页报告 skill 生成单页 HTML。
+4. 启动静态服务并返回 URL（如 `http://127.0.0.1:8765/<report>.html`）。
+5. 给出“是否建议上线”结论。

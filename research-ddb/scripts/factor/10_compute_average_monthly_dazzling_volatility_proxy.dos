@@ -1,0 +1,45 @@
+factorName = `average_monthly_dazzling_volatility
+startDate = 2023.01.01
+endDate = 2025.12.03
+
+raw = select ts_code as securityid, trade_date, close, pre_close, vol
+      from loadTable("dfs://stock_daily", "stock_daily_prev")
+      where trade_date between startDate:endDate
+
+base = select securityid, trade_date,
+              iif(pre_close==0 or isNull(pre_close), NULL, close/pre_close-1) as ret1,
+              vol,
+              vol - move(vol, 1) as dvol
+       from raw context by securityid
+
+base = select securityid, trade_date, ret1, vol, dvol,
+              mavg(dvol, 20) as dvol_mu20,
+              mstd(dvol, 20) as dvol_sd20,
+              mstd(ret1, 5) as vol5
+       from base context by securityid
+
+base = select securityid, trade_date, vol5,
+              mstd(vol5, 5) as vol_of_vol5,
+              dvol > (dvol_mu20 + dvol_sd20) as is_surge
+       from base context by securityid
+
+base = select securityid, trade_date,
+              iif(is_surge, vol_of_vol5, NULL) as surge_vol
+       from base
+
+base = select securityid, trade_date,
+              mavg(nullFill(surge_vol, 0.0), 20) as daily_dazzle_ma20
+       from base context by securityid
+
+cs = select trade_date, avg(daily_dazzle_ma20) as cs_mean from base group by trade_date
+
+factor = select b.securityid, b.trade_date,
+                mavg(abs(b.daily_dazzle_ma20 - c.cs_mean), 20) as factor_value
+         from base b left join cs c on b.trade_date = c.trade_date
+         context by b.securityid
+
+factor = select securityid, trade_date, factorName as factor_name, factor_value
+         from factor where isValid(factor_value)
+
+share(factor, "factor_proxy_average_monthly_dazzling_volatility")
+dict(["status","rows","table"], ["success", size(factor), "factor_proxy_average_monthly_dazzling_volatility"])

@@ -6,7 +6,7 @@ metadata:
   author: ddb-user
   version: "1.0.0"
   tags: ["factor", "research", "dolphindb", "backtest", "report"]
-  dependencies: [".github/skills/pdf", ".github/skills/execute-dlang", ".github/skills/ddb-data-analysis"]
+  dependencies: [".github/skills/pdf", ".github/skills/execute-dlang", ".github/skills/ddb-data-analysis", ".github/skills/ddb-visualization"]
 ---
 
 # Research-to-Factor for DolphinDB
@@ -35,7 +35,7 @@ metadata:
 - 目标：统一因子表（建议 `stock_factor_unified`）
 - 默认服务：`http://183.134.101.137:8657`
 
-## 技能结构
+## 技能结构（目录单一职责）
 
 ```text
 research-ddb/
@@ -50,30 +50,27 @@ research-ddb/
 ├── examples/
 │   └── factor_card_example_mom20.md
 ├── scripts/
-│   ├── 10_factor_compute_template.dos
-│   ├── 20_retry_validate_factor.dos
-│   ├── 30_merge_to_unified_table.dos
-│   ├── 40_evaluate_factor.dos
-│   ├── 50_export_eval_results.dos
-│   ├── practice_probe.dos
-│   ├── practice_probe_tables.dos
-│   └── practice_run_average_monthly_dazzling_volatility.dos
-│   ├── build_factor_report.py
-│   └── requirements.txt
+│   ├── probe/      # 只负责库表与环境探测
+│   ├── factor/     # 只负责因子计算
+│   ├── eval/       # 只负责因子评价
+│   └── report/     # 只负责报告渲染与发布
+├── legacy_scripts/ # 历史脚本，保留兼容
 └── outputs/
     └── .gitkeep
 ```
 
-## 执行流程（必须按顺序）
+## 执行流程（Skill 与 Agent 分层）
+
+- Skill 层（通用、不随任务变化）：由 `modules/research-analysis` 负责公式抽取+报告；由 `ddb-visualization` 负责看板渲染。
+- Agent 层（任务化、随目标变化）：指定某篇研报、指定因子、指定输出路径。
+
+执行步骤（agent 编排时）：
 
 1. 按 `reference/WORKFLOW.md` 拆解研报。
 2. 每个候选因子先写一张卡片（基于 `templates/factor_card_template.md`）。
-3. 基于 `scripts/10_factor_compute_template.dos` 生成具体因子脚本。
-4. 用 `scripts/20_retry_validate_factor.dos` 循环试错。
-5. 成功后执行 `scripts/30_merge_to_unified_table.dos` 入统一因子表。
-6. 执行 `scripts/40_evaluate_factor.dos` 计算 IC/分层收益等指标。
-7. 执行 `scripts/50_export_eval_results.dos` 持久化评价结果。
-8. 用 `python scripts/build_factor_report.py ...` 生成图表与报告。
+3. 在 `scripts/factor/` 生成具体因子脚本。
+4. 在 `scripts/eval/` 执行评价脚本。
+5. 在 `scripts/report/` 渲染单页 HTML 并输出链接。
 
 ## 实战案例（已跑通）
 

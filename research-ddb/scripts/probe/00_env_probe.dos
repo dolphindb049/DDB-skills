@@ -1,0 +1,5 @@
+res = dict(STRING, ANY)
+res["has_day_factor"] = existsDatabase("dfs://day_factor")
+res["has_stock_daily"] = existsDatabase("dfs://stock_daily")
+res["has_stockMinKSH"] = existsDatabase("dfs://stockMinKSH")
+res

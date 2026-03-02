@@ -1,0 +1,11 @@
+res = dict(STRING, ANY)
+
+try {
+    t = loadTable("dfs://stock_daily", "stock_daily_prev")
+    res["stock_daily_prev_schema"] = schema(t).colDefs
+    res["stock_daily_prev_range"] = select min(trade_date) as min_d, max(trade_date) as max_d from t
+} catch(ex) {
+    res["probe_error"] = string(ex)
+}
+
+res

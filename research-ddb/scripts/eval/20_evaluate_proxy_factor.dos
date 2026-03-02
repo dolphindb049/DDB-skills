@@ -1,0 +1,27 @@
+factor = objByName("factor_proxy_average_monthly_dazzling_volatility")
+if (isNull(factor)) {
+    throw "shared table factor_proxy_average_monthly_dazzling_volatility not found"
+}
+
+px = select ts_code as securityid, trade_date, close
+     from loadTable("dfs://stock_daily", "stock_daily_prev")
+     where trade_date between min(factor.trade_date):max(factor.trade_date)
+
+fr = select securityid, trade_date,
+            move(close, -1)/close-1 as fwd_1d,
+            move(close, -5)/close-1 as fwd_5d,
+            move(close, -10)/close-1 as fwd_10d
+     from px context by securityid
+
+evalBase = select f.trade_date, f.securityid, f.factor_value,
+                  r.fwd_1d, r.fwd_5d, r.fwd_10d
+           from factor f inner join fr r on f.securityid=r.securityid and f.trade_date=r.trade_date
+evalBase = select * from evalBase where isValid(factor_value) and isValid(fwd_1d) and isValid(fwd_5d) and isValid(fwd_10d)
+
+ic1 = select corr(factor_value, fwd_1d) as ic_mean, std(corr(factor_value, fwd_1d)) as ic_std from evalBase group by trade_date
+
+res = dict(STRING, ANY)
+res["status"] = "success"
+res["rows"] = size(evalBase)
+res["ic_1d_mean"] = mean(ic1.ic_mean)
+res

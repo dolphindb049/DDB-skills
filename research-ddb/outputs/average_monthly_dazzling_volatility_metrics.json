@@ -1,0 +1,26 @@
+{
+  "summary": {
+    "status": "success",
+    "factor": "average_monthly_dazzling_volatility",
+    "start_date": "2023-02-06",
+    "end_date": "2025-12-03",
+    "sample_rows": 3617710
+  },
+  "desc_stats": [
+    {"factor_quantile": 1, "min_value": 0.000002, "max_value": 0.000662, "std_value": 0.000090, "cnt": 712797, "pct": 20.003951},
+    {"factor_quantile": 2, "min_value": 0.000243, "max_value": 0.001101, "std_value": 0.000131, "cnt": 712516, "pct": 19.996065},
+    {"factor_quantile": 3, "min_value": 0.000347, "max_value": 0.001615, "std_value": 0.000195, "cnt": 712534, "pct": 19.996571},
+    {"factor_quantile": 4, "min_value": 0.000443, "max_value": 0.002206, "std_value": 0.000271, "cnt": 712516, "pct": 19.996065},
+    {"factor_quantile": 5, "min_value": 0.000559, "max_value": 0.957541, "std_value": 0.011023, "cnt": 712918, "pct": 20.007347}
+  ],
+  "ic_analysis": [
+    {"horizon": "Forward Returns 1D", "IC_Mean": -0.002484, "IC_Std": 0.035301, "IC_Risk_Adjusted": -0.070365, "IC_t_stat": -1.832207},
+    {"horizon": "Forward Returns 5D", "IC_Mean": -0.004779, "IC_Std": 0.032605, "IC_Risk_Adjusted": -0.146562, "IC_t_stat": -3.816257},
+    {"horizon": "Forward Returns 10D", "IC_Mean": -0.005827, "IC_Std": 0.032532, "IC_Risk_Adjusted": -0.179114, "IC_t_stat": -4.663842}
+  ],
+  "returns_analysis": [
+    {"metric": "Mean_Period_Wise_Return_Top_Quantile_bps", "forward_returns_1D": 13.5919, "forward_returns_5D": 31.4204, "forward_returns_10D": 64.8529},
+    {"metric": "Mean_Period_Wise_Return_Bottom_Quantile_bps", "forward_returns_1D": 5.8259, "forward_returns_5D": 38.5858, "forward_returns_10D": 72.5529},
+    {"metric": "Mean_Period_Wise_Spread_bps", "forward_returns_1D": 7.7660, "forward_returns_5D": -7.1654, "forward_returns_10D": -7.7000}
+  ]
+}
