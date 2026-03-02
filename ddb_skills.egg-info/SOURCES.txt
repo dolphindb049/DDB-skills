@@ -1,8 +1,0 @@
-pyproject.toml
-DDBcoding/scripts/ddb_runner/__init__.py
-DDBcoding/scripts/ddb_runner/execute.py
-ddb_skills.egg-info/PKG-INFO
-ddb_skills.egg-info/SOURCES.txt
-ddb_skills.egg-info/dependency_links.txt
-ddb_skills.egg-info/requires.txt
-ddb_skills.egg-info/top_level.txt

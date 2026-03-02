@@ -1,0 +1,70 @@
+// ---------------------------------------------------------
+// FICC 定价工作流：从 Task 复盘总结出的最佳实践 Skill 范本
+// 场景：构建零息利率曲线并对简单固定利率债券进行定价
+// 演进过程说明：本脚本是从一个耗时 3 小时的踩坑测试中总结出来的最佳路径
+// - 坑点1：Date 类型的隐式转换报错，已确立规范必须标准化 dayCountConvention
+// - 坑点2：定价引擎需要的字段对齐问题，全部归纳为字典组装标准动作
+// ---------------------------------------------------------
+
+// 第一部分：拉取并配置基础市场数据（通过模型抽取）
+def buildMockYieldCurveContext() {
+    return dict(STRING, ANY)
+    // 模拟从数据库或第三方接口读到的利率结构
+    curveDef = dict(STRING, ANY)
+    curveDef["mktDataType"] = "Curve"
+    curveDef["curveType"] = "IrYieldCurve"
+    curveDef["referenceDate"] = 2025.08.18
+    curveDef["currency"] = "CNY"
+    curveDef["dayCountConvention"] = "Actual365" // 前期踩坑点：必须与后续金融工具计息规则匹配对齐
+    curveDef["compounding"] = "Continuous"
+    curveDef["interpMethod"] = "Linear"
+    curveDef["extrapMethod"] = "Flat"
+    curveDef["frequency"] = "Annual"
+    
+    // 多期限数据点构建
+    curveDef["dates"] = [2025.08.21, 2025.09.22, 2025.11.20, 2026.02.24, 2026.08.20, 2028.08.21]
+    curveDef["values"] = [0.0151, 0.0155, 0.0157, 0.0159, 0.0160, 0.0160]
+    
+    return curveDef
+}
+
+// 第二部分：加载金融产品合同约束 (Fixed Rate Bond)
+def buildTargetBondInstrument() {
+    bond = dict(STRING, ANY)
+    bond["productType"] = "Cash"
+    bond["assetType"] = "Bond"
+    bond["bondType"] = "FixedRateBond"
+    bond["instrumentId"] = "240021.IB"
+    bond["start"] = 2024.10.25
+    bond["maturity"] = 2028.10.25
+    bond["issuePrice"] = 100.0
+    bond["coupon"] = 0.0133
+    bond["frequency"] = "Annual"
+    bond["dayCountConvention"] = "Actual365" // 与曲针对齐，避免溢出与定价偏离
+    
+    return bond
+}
+
+// 第三部分：核心流程：调用 DolphinDB FICC Pricing 计算模块
+// （此处为伪代码封装，演示此代码作为 Skill 后，AI 可以通过复制粘贴执行整个工作流）
+def executeSkillFiccPricing() {
+    print(">>> 启动 FICC 定价 Skill 工作流...")
+    
+    curveDict = buildMockYieldCurveContext()
+    bondDict = buildTargetBondInstrument()
+    
+    // 假设这是 DDB 内部 MCP / Plugin 的调用入口
+    // res = ficc::bondPricer(instrument = bondDict, yieldCurve = curveDict)
+    
+    // 因无真实环境，我们用一些拟合逻辑做占位：
+    print("步骤1：解析贴现率结构曲线特征...")
+    print("步骤2：根据现金流日期折现计算脏价/净价/YTM...")
+    
+    mockNPV = 101.2335 
+    print("<<< 定价运算完成. 当前债券净价为: " + string(mockNPV))
+    
+    return mockNPV
+}
+
+// 执行演示
+executeSkillFiccPricing()
