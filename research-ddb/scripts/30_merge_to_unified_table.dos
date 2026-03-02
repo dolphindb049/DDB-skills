@@ -1,0 +1,24 @@
+def ensure_unified_factor_table(dbPath, tableName) {
+    if (!existsDatabase(dbPath)) {
+        throw "db not found: " + dbPath
+    }
+
+    db = database(dbPath)
+    if (!existsTable(dbPath, tableName)) {
+        schema = table(1:0,
+            `trade_date`securityid`factor_name`factor_value`source_report`version`updated_at,
+            [DATE, SYMBOL, SYMBOL, DOUBLE, STRING, STRING, TIMESTAMP])
+        db.createPartitionedTable(schema, tableName, `trade_date)
+    }
+}
+
+def merge_factor_to_unified(factorTable, dbPath, tableName) {
+    ensure_unified_factor_table(dbPath, tableName)
+    base = loadTable(dbPath, tableName)
+
+    dedup = select * from factorTable
+    dedup = select * from dedup context by trade_date, securityid, factor_name having rowNo()=0
+
+    append!(base, dedup)
+    return size(dedup)
+}

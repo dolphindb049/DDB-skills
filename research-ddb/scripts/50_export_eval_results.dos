@@ -1,0 +1,20 @@
+def export_eval_result_csv(dbPath, factorName, outDir) {
+    daily = select * from loadTable(dbPath, "factor_eval_daily")
+            where factor_name = symbol(factorName)
+            order by trade_date
+
+    summary = select * from loadTable(dbPath, "factor_eval_summary")
+              where factor_name = symbol(factorName)
+              order by updated_at desc
+
+    if (size(daily) == 0 or size(summary) == 0) {
+        throw "no evaluation result found for factor: " + factorName
+    }
+
+    dailyPath = outDir + "/" + factorName + "_daily.csv"
+    summaryPath = outDir + "/" + factorName + "_summary.csv"
+    saveText(daily, dailyPath)
+    saveText(summary, summaryPath)
+
+    return dict(["daily","summary"], [dailyPath, summaryPath])
+}

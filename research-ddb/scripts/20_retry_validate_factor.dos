@@ -1,0 +1,34 @@
+def retry_validate_factor(generatorFunc, startDate, endDate, sourceReport, version, maxRetry) {
+    if (maxRetry <= 0) maxRetry = 5
+
+    i = 0
+    lastErr = ""
+    out = table(1:0, `trade_date`securityid`factor_name`factor_value`source_report`version`updated_at,
+                   [DATE, SYMBOL, SYMBOL, DOUBLE, STRING, STRING, TIMESTAMP])
+
+    while (i < maxRetry) {
+        try {
+            out = generatorFunc(startDate, endDate, sourceReport, version)
+            if (size(out) == 0) {
+                throw "factor output is empty"
+            }
+
+            validRate = (exec count(*) from out where isValid(factor_value)) \ max(1, size(out))
+            if (validRate < 0.6) {
+                throw "valid rate too low: " + string(validRate)
+            }
+
+            coverage = exec count(distinct securityid) from out
+            if (coverage < 100) {
+                throw "coverage too low: " + string(coverage)
+            }
+
+            return out
+        } catch (ex) {
+            lastErr = string(ex)
+            i = i + 1
+        }
+    }
+
+    throw "retry failed: " + lastErr
+}

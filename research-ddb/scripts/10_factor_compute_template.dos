@@ -1,0 +1,25 @@
+def compute_factor_template(startDate, endDate, sourceReport, version) {
+    factorName = `FACTOR_NAME
+    t = select trade_date, ts_code as securityid, close, vol, amount
+        from loadTable("dfs://day_factor", "stock_daily_prev")
+        where trade_date between date(startDate):date(endDate)
+
+    if (size(t) == 0) {
+        throw "no data in stock_daily_prev for date range"
+    }
+
+    factorRaw = select trade_date,
+                      securityid,
+                      FACTOR_EXPR as factor_value
+                from t context by securityid
+
+    factorRaw = select * from factorRaw where isValid(factor_value)
+    factorRaw = select trade_date, securityid, factorName as factor_name,
+                      double(factor_value) as factor_value,
+                      sourceReport as source_report,
+                      version as version,
+                      now() as updated_at
+                from factorRaw
+
+    return factorRaw
+}
