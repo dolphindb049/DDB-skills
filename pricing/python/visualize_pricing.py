@@ -31,18 +31,29 @@ def ddb_date_literal(s: str) -> str:
     return s.replace("-", ".")
 
 
-def fetch_data(session, db_path: str, pricing_date: str, instrument_id: str):
+def fetch_data(
+    session,
+    db_path: str,
+    pricing_date: str,
+    instrument_id: str,
+    result_table: str,
+    curve_table: str,
+    risk_table: str,
+    compare_table: str,
+):
     d = ddb_date_literal(pricing_date)
-    q_result = f"select * from loadTable('{db_path}','pricing_result') where pricingDate={d}"
-    q_curve = f"select * from loadTable('{db_path}','pricing_curve_points') where pricingDate={d} order by curveDate"
-    q_asset = f"select * from loadTable('{db_path}','pricing_result') where pricingDate={d}, instrumentId='{instrument_id}'"
-    q_risk = f"select * from loadTable('{db_path}','pricing_risk') where pricingDate={d}, instrumentId='{instrument_id}'"
+    q_result = f"select * from loadTable('{db_path}','{result_table}') where pricingDate={d}"
+    q_curve = f"select * from loadTable('{db_path}','{curve_table}') where pricingDate={d} order by curveDate"
+    q_asset = f"select * from loadTable('{db_path}','{result_table}') where pricingDate={d}, instrumentId='{instrument_id}'"
+    q_risk = f"select * from loadTable('{db_path}','{risk_table}') where pricingDate={d}, instrumentId='{instrument_id}'"
+    q_cmp = f"select * from loadTable('{db_path}','{compare_table}') where pricingDate={d}"
 
     return {
         "result": run_query(session, q_result),
         "curve": run_query(session, q_curve),
         "asset": run_query(session, q_asset),
         "risk": run_query(session, q_risk),
+        "compare": run_query(session, q_cmp),
     }
 
 
@@ -80,6 +91,14 @@ def plot_asset(asset_df: pd.DataFrame, risk_df: pd.DataFrame, out_dir: Path):
         fig_risk.write_html(out_dir / "asset_risk.html", include_plotlyjs="cdn")
 
 
+def plot_external_compare(compare_df: pd.DataFrame, out_dir: Path):
+    if compare_df.empty:
+        return
+    fig = px.histogram(compare_df, x="modelMinusMarketBp", nbins=40, title="Model vs External Market Error (bp)")
+    fig.update_layout(bargap=0.05)
+    fig.write_html(out_dir / "error_vs_external_market.html", include_plotlyjs="cdn")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Visualize DolphinDB bond pricing outputs")
     parser.add_argument("--host", default="192.168.100.43")
@@ -90,6 +109,10 @@ def main():
     parser.add_argument("--pricing-date", default="2025-08-18")
     parser.add_argument("--instrument-id", default="109400.XSHE")
     parser.add_argument("--out-dir", default="./skills/pricing/python/output")
+    parser.add_argument("--result-table", default="pricing_result")
+    parser.add_argument("--curve-table", default="pricing_curve_points")
+    parser.add_argument("--risk-table", default="pricing_risk")
+    parser.add_argument("--compare-table", default="pricing_compare_external")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -98,7 +121,16 @@ def main():
     session = ddb.session()
     session.connect(args.host, args.port, args.user, args.password)
 
-    data = fetch_data(session, args.db_path, args.pricing_date, args.instrument_id)
+    data = fetch_data(
+        session,
+        args.db_path,
+        args.pricing_date,
+        args.instrument_id,
+        args.result_table,
+        args.curve_table,
+        args.risk_table,
+        args.compare_table,
+    )
 
     if data["result"].empty:
         raise RuntimeError("No pricing_result rows found for the given pricing date.")
@@ -106,11 +138,13 @@ def main():
     plot_error_distribution(data["result"], out_dir)
     plot_curve(data["curve"], out_dir)
     plot_asset(data["asset"], data["risk"], out_dir)
+    plot_external_compare(data["compare"], out_dir)
 
     data["result"].to_csv(out_dir / "pricing_result.csv", index=False)
     data["curve"].to_csv(out_dir / "pricing_curve_points.csv", index=False)
     data["asset"].to_csv(out_dir / "asset_price.csv", index=False)
     data["risk"].to_csv(out_dir / "asset_risk.csv", index=False)
+    data["compare"].to_csv(out_dir / "compare_external.csv", index=False)
 
     print(f"Saved visualizations to: {out_dir}")
 

@@ -47,10 +47,22 @@ riskSchema = table(1:0,
     [DATE,STRING,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE]
 )
 
+externalMarketSchema = table(1:0,
+    ["pricingDate","instrumentId","marketPrice","priceType","source","sourceTs"],
+    [DATE,STRING,DOUBLE,STRING,STRING,TIMESTAMP]
+)
+
+compareSchema = table(1:0,
+    ["pricingDate","instrumentId","modelPrice","marketPrice","modelMinusMarket","modelMinusMarketBp","source","priceType"],
+    [DATE,STRING,DOUBLE,DOUBLE,DOUBLE,DOUBLE,STRING,STRING]
+)
+
 ensureTable(db, outDbPath, "pricing_instrument_desc", instrumentDescSchema)
 ensureTable(db, outDbPath, "pricing_curve_points", curveSchema)
 ensureTable(db, outDbPath, "pricing_result", pricingResultSchema)
 ensureTable(db, outDbPath, "pricing_risk", riskSchema)
+ensureTable(db, outDbPath, "pricing_market_external", externalMarketSchema)
+ensureTable(db, outDbPath, "pricing_compare_external", compareSchema)
 
 print("Output DB and tables are ready: " + outDbPath)
 outDbPath

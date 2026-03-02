@@ -1,0 +1,2 @@
+pricingDate,instrumentId,bondType,start,maturity,coupon,issuePrice,modelPrice,marketProxyPrice,priceDiff,diffBp,modelVsIssue
+2025-08-18,109400.XSHE,FixedRateBond,2015-08-19,2025-08-19,0.0362,100.0,101.79149783706335,101.79127474084542,0.0002230962179226026,0.021917027612783357,1.7914978370633463
