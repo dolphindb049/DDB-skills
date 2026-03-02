@@ -1,0 +1,7 @@
+t = loadTable("dfs://stock_daily", "stock_daily_prev")
+
+res = dict(STRING, ANY)
+res["schema"] = schema(t).colDefs
+res["date_range"] = select min(trade_date) as min_d, max(trade_date) as max_d from t
+res["sample"] = select top 5 * from t
+res

@@ -6,6 +6,7 @@ metadata:
   author: ddb-user
   version: "1.0.0"
   tags: ["factor", "research", "dolphindb", "backtest", "report"]
+  dependencies: [".github/skills/pdf", ".github/skills/execute-dlang", ".github/skills/ddb-data-analysis"]
 ---
 
 # Research-to-Factor for DolphinDB
@@ -43,6 +44,7 @@ research-ddb/
 │   ├── WORKFLOW.md
 │   ├── SUBAGENT_PROMPTS.md
 │   └── QUALITY_GATES.md
+│   └── practice_case_vol_of_vol.md
 ├── templates/
 │   └── factor_card_template.md
 ├── examples/
@@ -53,6 +55,9 @@ research-ddb/
 │   ├── 30_merge_to_unified_table.dos
 │   ├── 40_evaluate_factor.dos
 │   ├── 50_export_eval_results.dos
+│   ├── practice_probe.dos
+│   ├── practice_probe_tables.dos
+│   └── practice_run_average_monthly_dazzling_volatility.dos
 │   ├── build_factor_report.py
 │   └── requirements.txt
 └── outputs/
@@ -69,6 +74,31 @@ research-ddb/
 6. 执行 `scripts/40_evaluate_factor.dos` 计算 IC/分层收益等指标。
 7. 执行 `scripts/50_export_eval_results.dos` 持久化评价结果。
 8. 用 `python scripts/build_factor_report.py ...` 生成图表与报告。
+
+## 实战案例（已跑通）
+
+研报：`reference/pdf-report/（5）波动率的波动率与投资者模糊性厌恶.pdf`
+
+对应脚本：
+
+- 环境探测：`scripts/practice_probe.dos`
+- 表结构探测：`scripts/practice_probe_tables.dos`
+- 日频代理因子实跑：`scripts/practice_run_average_monthly_dazzling_volatility.dos`
+
+执行命令：
+
+```powershell
+uv run .github/skills/execute-dlang/scripts/ddb_runner/execute.py .github/skills/research-ddb/scripts/practice_run_average_monthly_dazzling_volatility.dos
+```
+
+本次实跑结论见：`reference/practice_case_vol_of_vol.md`
+
+## 关键排障结论（来自实战）
+
+1. 不能假设数据库路径固定。示例环境中 `dfs://day_factor` 不存在，而可用的是 `dfs://stock_daily.stock_daily_prev`。
+2. PowerShell 下 `-c` 代码字符串容易被引号吞噬，优先使用 `.dos` 文件执行。
+3. `quantileSeries + asof + 1` 可能出现超边界分组（第 6 组），要强制截断到 1~5。
+4. 分钟库存在但表名不可直接推断时，必须给出降级方案（先跑日频代理）并在因子卡片标明“近似实现”。
 
 ## 并行子 Agent 建议
 

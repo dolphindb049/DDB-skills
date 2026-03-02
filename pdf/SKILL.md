@@ -312,3 +312,11 @@ with open("encrypted.pdf", "wb") as output:
 - For JavaScript libraries (pdf-lib), see REFERENCE.md
 - If you need to fill out a PDF form, follow the instructions in FORMS.md
 - For troubleshooting guides, see REFERENCE.md
+
+## Practical Notes (Windows + Workspace venv)
+
+- If workspace Python reports `No module named pip`, run:
+    - `python -m ensurepip --upgrade`
+    - `python -m pip install pypdf pdfplumber`
+- For Chinese file names, always use raw string paths in Python, e.g. `Path(r"D:\\...\\文件.pdf")`.
+- Prefer saving extracted text with UTF-8 explicitly: `write_text(text, encoding="utf-8")`.

@@ -1,0 +1,17 @@
+t = getChunksMeta()
+res = dict(STRING, ANY)
+res["chunk_cols"] = schema(t).colDefs
+
+try {
+    res["stockMinKSH_table_names"] = select distinct tableName from t where like(dfsPath, "/stockMinKSH/%")
+} catch(ex) {
+    res["stockMinKSH_table_names_error"] = string(ex)
+}
+
+try {
+    res["stock_daily_table_names"] = select distinct tableName from t where like(dfsPath, "/stock_daily/%")
+} catch(ex) {
+    res["stock_daily_table_names_error"] = string(ex)
+}
+
+res

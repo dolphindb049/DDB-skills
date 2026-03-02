@@ -74,6 +74,13 @@ uv run .github/skills/execute-dlang/scripts/ddb_runner/execute.py -c "avg(y)" --
 *   **现象**: 提示 `File not found`。
 *   **解决方案**: 脚本现在会自动尝试相对于当前工作目录解析路径。如果仍然找不到，请使用**绝对路径**或**相对于工作区根目录的完整路径**。
 
+### 2.1 PowerShell 引号陷阱（新增）
+*   **现象**: `-c` 执行复杂代码时，字符串中的引号被 PowerShell 吞掉，DolphinDB 报 `Cannot recognize token`。
+*   **解决方案**:
+    *   优先使用 `.dos` 文件执行：`execute.py your_script.dos`。
+    *   仅在短表达式（如 `1+1`）时使用 `-c`。
+    *   对包含 URL、DFS 路径、数组字面量的代码，不要走 `-c`。
+
 ### 3. 长连接断开与变量丢失
 *   **现象**: 之前定义的 `function` 或 `table` 找不到了。
 *   **原因**: `server.py` 可能因为网络波动或报错重启了。

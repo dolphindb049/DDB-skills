@@ -61,3 +61,10 @@ ddb-data-analysis/
     - A: 脚本中已包含 `isValid` 过滤逻辑。如果你在第一行就有 NaN (比如 `ratios` 导致)，回归会自动报错或返回无效结果，必须先 `drop` 或 `fill`。
 - **Q: 如何扩展到几千只股票？**
     - A: 脚本使用了 `context by SecurityID`，无需修改代码，DolphinDB 会自动并行分组计算。
+
+## 🧪 实战排障补充（2026-03）
+
+- **PowerShell 引号陷阱**：`execute.py -c "..."` 在复杂表达式下容易被转义破坏，建议优先执行 `.dos` 文件。
+- **数据库路径漂移**：不同环境常见 `dfs://day_factor` 与 `dfs://stock_daily` 不一致，先用 `getChunksMeta()` 探测再编码。
+- **分位分组越界**：`asof(quantileSeries(...))+1` 可能产生超出目标组数的标签，务必用 `iif(q>k,k,q)` 截断。
+- **分钟级依赖缺失**：分钟库存在但表名不可解析时，先给出日频代理因子跑通主链路，再补分钟版分支。
