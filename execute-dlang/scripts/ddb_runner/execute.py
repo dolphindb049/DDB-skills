@@ -3,6 +3,7 @@
 # dependencies = [
 #     "dolphindb",
 #     "python-dotenv",
+#     "pandas",
 # ]
 # ///
 # execute.py
@@ -10,6 +11,7 @@ import sys
 import os
 import argparse
 import socket
+import pandas as pd
 
 # Check for required packages
 try:
@@ -118,7 +120,14 @@ def run_code(session, code_str, args, print_output=True, use_server=False):
         if print_output:
             print("[Success] Execution Successful")
             print("--- Result ---")
-            print(result)
+            if isinstance(result, pd.DataFrame):
+                # Format DataFrame nicely
+                print(result.to_string(index=False))
+            elif isinstance(result, list) or isinstance(result, dict):
+                import pprint
+                pprint.pprint(result)
+            else:
+                print(result)
             print("--------------")
         return result
     except Exception as e:

@@ -1,0 +1,515 @@
+//========== 1. 创建FICC数据库 ==========
+create database "dfs://ficc_data2"
+partitioned by VALUE(2020.01M..2030.12M), HASH([SYMBOL, 100])
+engine="TSDB",
+atomic="TRANS"
+
+//========== 2. 创建债券基本信息表 ==========
+CREATE TABLE "dfs://ficc_data2"."bond_basic_info" (
+    secID SYMBOL [comment="证券代码"],
+    ticker SYMBOL [comment="代码"],
+    exchangeCD SYMBOL [comment="交易所代码"],
+    bondID INT [comment="债券ID"],
+    secFullName STRING [comment="证券全称"],
+    secShortName STRING [comment="证券简称"],
+    listStatusCD SYMBOL [comment="上市状态"],
+    partyID INT [comment="发行人ID"],
+    issuer STRING [comment="发行人"],
+    totalSize DOUBLE [comment="发行总量(亿)"],
+    remainSize DOUBLE [comment="存续总量(亿)"],
+    currencyCD SYMBOL [comment="币种"],
+    couponTypeCD SYMBOL [comment="付息类型"],
+    cpnFreqCD SYMBOL [comment="付息频率"],
+    paymentCD SYMBOL [comment="付息方式"],
+    coupon DOUBLE [comment="票面利率(%)"],
+    par INT [comment="面值"],
+    hybridCD SYMBOL [comment="混合债券标识"],
+    typeID SYMBOL [comment="分类ID"],
+    typeName STRING [comment="分类名称"],
+    publishDate DATE [comment="公告日期"],
+    listDate DATE [comment="上市日期"],
+    delistDate DATE [comment="摘牌日期"],
+    firstAccrDate DATE [comment="起息日"],
+    maturityDate DATE [comment="到期日"],
+    firstRedempDate DATE [comment="兑付日"],
+    isOption INT [comment="是否含期权"],
+    absLevelRatio DOUBLE [comment="绝对评级比例"],
+    actMaturityDate DATE [comment="实际到期日"],
+    frnCurrBmkRate SYMBOL [comment="浮动利率基准"],
+    absIssuerID INT [comment="ABS发行人ID"],
+    absIssuer STRING [comment="ABS发行人"],
+    absLevelCD SYMBOL [comment="绝对评级"],
+    frnRefRateCD SYMBOL [comment="基准利率代码"],
+    frnMargin SYMBOL [comment="浮动利差"],
+    privPlacemFlag SYMBOL [comment="私募标识"]
+)
+partitioned by publishDate, secID,
+sortColumns = `secID`publishDate
+comment = "债券基本信息表"
+
+//========== 3. 导入债券基本信息数据 ==========
+// 重新提取并修改schema
+schema = extractTextSchema("/hdd/hdd9/jrzhang/projects/ficc/bond_basic_info.csv");
+
+// 修改数据类型以匹配目标表
+update schema set type = `SYMBOL where name in [`ticker, `paymentCD, `hybridCD];
+update schema set type = `STRING where name in [`secFullName, `secShortName, `issuer, `typeName, `absIssuer];
+update schema set type = `INT where name in [`bondID, `partyID, `par, `absIssuerID];
+
+// 加载数据
+bond_data = loadText("/hdd/hdd9/jrzhang/projects/ficc/bond_basic_info.csv", schema=schema);
+
+
+
+// 导入到分布式表
+loadTable("dfs://ficc_data2", "bond_basic_info").append!(SELECT * FROM bond_data WHERE publishDate>=2022.01.01);
+
+// 检查导入结果
+select count(*) as total_records from loadTable("dfs://ficc_data2", "bond_basic_info")
+
+truncate("dfs://ficc_data2", "bond_basic_info")
+//========== 4. 创建其他表结构 ==========
+// 创建金融工具表
+CREATE TABLE "dfs://ficc_data2"."instrument" (
+    instrumentId STRING [comment="金融工具ID"],
+    instrumentName STRING [comment="金融工具名称"],
+    assetType STRING [comment="资产类型"],
+    listingDate DATE [comment="上市日期"],
+    market SYMBOL [comment="市场代码"],
+    instrument INSTRUMENT [comment="金融工具类型"],
+    extra BLOB
+)
+PARTITIONED BY listingDate, assetType
+sortColumns = `instrumentId`assetType`listingDate
+
+
+// 创建收益率曲线表
+CREATE TABLE "dfs://ficc_data2"."bond_yield_curve" (
+    date DATE [comment="日期"],
+    curveName STRING [comment="曲线名称"],
+    term DOUBLE [comment="期限"],
+    spotYield DOUBLE [comment="收益率"]
+)
+PARTITIONED BY date, curveName
+sortColumns = `date
+comment = "收益率曲线"
+
+// 创建曲线表
+CREATE TABLE "dfs://ficc_data2"."curve" (
+    referenceDate DATE [comment="参考日期"],
+    curveName STRING [comment="曲线名称"],
+    curveType STRING [comment="曲线类型"],
+    marketData MKTDATA [comment="市场数据"]
+)
+PARTITIONED BY referenceDate,curveType
+sortColumns = `curveName`referenceDate
+comment = "曲线表"
+
+
+// 创建国债期货最便宜可交割券表
+CREATE TABLE "dfs://ficc_data2"."FutuCtd" (
+    col0           INT   [comment=""],
+    secID          SYMBOL   [comment="通联编制的证券编码"],
+    ticker         SYMBOL   [comment="通用交易代码"],
+    secShortName   STRING   [comment="证券简称"],
+    exchangeCD     SYMBOL   [comment="交易市场代码"],
+    tradeDate      DATE     [comment="交易日期"],
+    bondID         SYMBOL   [comment="债券ID"],  
+    shSecID        STRING   [comment="沪市债券证券内部ID"],
+    shTicker       SYMBOL   [comment="沪市债券通用交易代码"],
+    shSecShortName STRING   [comment="沪市债券简称"],
+    shIrr          DOUBLE   [comment="沪市隐含回购利率"],
+    szSecID        STRING   [comment="深市债券证券内部ID"],
+    szTicker       INT      [comment="深市债券通用交易代码"],
+    szSecShortName STRING   [comment="深市债券简称"],
+    szIrr          DOUBLE   [comment="深市隐含回购利率"],
+    ibSecID        STRING   [comment="银行间债券证券内部ID"],
+    ibTicker       SYMBOL   [comment="银行间债券通用交易代码"],
+    ibSecShortName STRING   [comment="银行间债券简称"],
+    ibIrr          DOUBLE   [comment="银行间隐含回购利率"],
+    ctdSecID       STRING   [comment="最便宜可交割债券证券内部ID"],
+    ctdIrr         DOUBLE   [comment="最便宜隐含回购利率"],
+    updateTime     DATETIME [comment="更新时间"]
+)
+PARTITIONED BY tradeDate,exchangeCD
+sortColumns = `secID`tradeDate
+comment = "国债期货最便宜可交割券表";
+
+// truncate("dfs://ficc_data2", "instrument")
+//========== 4. 导入债券数据和曲线数据 ==========
+def getBondType(couponType){
+    return iif(couponType=='FLOAT','FloatingRate',iif(couponType=='FIXED',
+    'FixedRate',iif(couponType=='ZERO','DiscountBond','ZeroCouponBond')))
+}
+def getfreq(freq){
+    return iif(freq=="MAT",0, iif(freq=="1PY", 1, iif(freq == "2PY", 2, iif(freq == "4PY", 4, 
+    iif(freq == "6PY", 6, iif(freq == "12PY", 12, iif(freq == "24PY", 24, -1)))))))
+}
+def getBondSubType(typeName, issuer) {
+    bond_type_map = {
+        "超短期融资券": "SHORT_FIN_BOND",
+        "证券公司短期融资券": "SHORT_FIN_BOND",
+        "资产支持票据": "ABS",
+        "一般中期票据": "MTN",
+        "同业存单": "NCD",
+        "私募公司债": "PPN",
+        "证券公司债": "CORP_BOND",
+        "券商专项资产管理": "ABS",
+        "地方政府债": "LOC_GOV_BOND",
+        "汽车抵押贷款证券化": "ABS",
+        "信贷资产证券化": "ABS",
+        "住房抵押贷款证券化": "ABS",
+        "国债": "TREASURY_BOND",
+        "商业银行普通债": "COMM_BANK_FIN_BOND",
+        "一般企业债": "CORP_BOND",
+        "股权交易中心债": "CORP_BOND",
+        "一般公司债": "CORP_BOND",
+        "证券公司次级债": "CORP_BOND",
+        "其它金融机构次级债券": "CORP_BOND",
+        "政府支持机构债": "CORP_BOND",
+        "可转债": "CORP_BOND",
+        "定向工具": "PPN",
+        "政策性银行债": "CDB_BOND",   
+        "中央国库现金管理": "TREASURY_BOND",
+        "保险公司债": "CORP_BOND",
+        "集合中期票据": "MTN",
+        "一般短期融资券": "SHORT_FIN_BOND",
+        "可交换债券": "CORP_BOND",
+        "项目收益票据": "CORP_BOND",
+        "其它金融债": "COMM_BANK_FIN_BOND",
+        "公司债": "CORP_BOND",
+        "二级资本工具": "BANK_SUB_CAP_BOND",
+        "商业银行次级债": "BANK_SUB_CAP_BOND",
+        "无固定期限资本债券": "BANK_SUB_CAP_BOND",
+        "国际机构债": "CORP_BOND",
+        "自贸区离岸债券": "CORP_BOND",
+        "集合企业债": "CORP_BOND",
+        "央行票据": "CENTRAL_BANK_BILL",
+        "政策性银行次级债": "BANK_SUB_CAP_BOND"
+    }
+    specialIssuer = ["国家开发银行", "中国进出口银行", "中国农业发展银行"]
+    return iif(typeName!="政策性银行债", bond_type_map[typeName].flatten(), 
+    iif(issuer == "国家开发银行", "CDB_BOND", iif(issuer == "中国进出口银行", "EIBC_BOND", "ADBC_BOND")))
+}
+
+
+mapping = dict(STRING, ANY)
+mapping["start"] = <firstAccrDate as start>
+mapping["maturity"] = <maturityDate as maturity>
+mapping["currency"] = <currencyCD as currency>
+mapping["bondType"] = <getBondType(couponTypeCD) as bondType>
+mapping["frequency"] = <getfreq(cpnFreqCD) as frequency>
+mapping["coupon"] = <coupon/100 as coupon>
+mapping["nominal"] = <par as nominal>
+mapping["instrumentId"] = <secID as instrumentId>
+mapping["productType"] = <"Cash" as productType>
+mapping["assetType"] = <"Bond" as assetType>
+mapping["dayCountConvention"] = <"ActualActualISDA" as dayCountConvention>
+mapping["subType"] = <getBondSubType(typeName, issuer) as subType>
+mapping["instrumentName"] = <secShortName as instrumentName>
+mapping["exchangeCD"] = <exchangeCD as exchangeCD>
+// otherColumns = loadTable("dfs://ficc_data2", "bond_basic_info").columnNames()
+// otherColumns = each(sqlCol{,,}, otherColumns,, otherColumns + "_extra")
+
+//原始数据导入
+fixedBondTb = select * from loadTable("dfs://ficc_data2", "bond_basic_info") 
+where typeID.startsWith("020201") and couponTypeCD = "FIXED" 
+and listStatusCD not in ["DE", "UN"] and paymentCD != "P"
+//转换为parseInstrument所需格式
+fixedBondTb = sql(select = mapping.values(), 
+from = fixedBondTb).eval()
+
+//批量解析
+def importFixedBond(fixedBondTb) {
+    instrumentTb = loadTable("dfs://ficc_data2","instrument")
+    resultTb = table(1:0, instrumentTb.columnNames(), instrumentTb.schema().colDefs.typeString)
+    failedSecIds = table(1:0, ["instrumentId", "error"], [STRING, STRING])
+    for (ins in fixedBondTb) {  // ins = fixedBondTb[3]
+        try{
+            instrumentTmp = array(INSTRUMENT)
+            instrumentTmp.append!(parseInstrument(ins))
+            tmp = table(ins.instrumentId as instrumentId, ins.instrumentName as instrumentName, 
+            "Bond" as assetType, ins.start as startDate, ins.exchangeCD as market,
+            instrumentTmp, string(NULL) as extra)
+            resultTb.append!(tmp)
+        } catch(ex) {
+            failedSecIds.append!(table(ins.instrumentId as instrumentId, ex[0] + ex[1] as error))
+        }
+    }
+    return resultTb, failedSecIds
+}
+
+instrument_tb = loadTable("dfs://ficc_data2","instrument")
+instrument_tb.append!(importFixedBond(fixedBondTb)[0])
+
+// 贴现债
+conn =  xdb("192.168.100.43",8671,"admin","123456")
+
+script='
+login("admin","123456")
+tb = select * from loadTable("dfs://instrument_dbtest2", "instrument") where typeID.startsWith("020201")
+and couponTypeCD in ["ZERO"] and listStatusCD not in ["DE", "UN"] and paymentCD != "P"
+// 合并发行价格
+tb = select tb.*, issuePrice from tb left semi join loadTable("dfs://instrument_dbtest2", "getBondIssue")
+as listPrice on tb.secID = listPrice.secID
+tb
+'
+tb = remoteRun(conn,script)
+
+//编辑新的处理元代码
+mapping1 = mapping
+mapping1["issuePrice"] = <issuePrice as issuePrice>
+//转换为parseInstrument所需格式
+discountBondTb = sql(select = mapping.values(), from = tb).eval()
+
+
+//批量解析
+def importDiscountBond(discountBondTb) {
+    instrumentTb = loadTable("dfs://ficc_data2","instrument")
+    resultTb = table(1:0, instrumentTb.columnNames(), instrumentTb.schema().colDefs.typeString)
+    failedSecIds = table(1:0, ["instrumentId", "error"], [STRING, STRING])
+    for (ins in discountBondTb) {  // ins = discountBondTb[3]
+        try{
+            instrumentTmp = array(INSTRUMENT)
+            instrumentTmp.append!(parseInstrument(ins))
+            tmp = table(ins.instrumentId as instrumentId, ins.instrumentName as instrumentName, 
+            "Bond" as assetType, ins.start as startDate, ins.exchangeCD as market,
+            instrumentTmp, string(NULL) as extra)
+            resultTb.append!(tmp)
+            print(ins.instrumentId)
+        } catch(ex) {
+            failedSecIds.append!(table(ins.instrumentId as instrumentId, ex[0] + ex[1] as error))
+        }
+    }
+    return resultTb, failedSecIds
+}
+instrument_tb = loadTable("dfs://ficc_data2","instrument")
+instrument_tb.append!(importDiscountBond(discountBondTb)[0])
+
+
+// =========================  导入收益率曲线数据 =======================
+temp=remoteRun(conn,'select dataDt as date,curveName, cast(maturityDesc, double) as term , yieldSpread as yield from loadTable("dfs://instrument_dbtest2", "BondYieldCurveSh") where dataDt>=2025.01.01 and curveType=="到期"')
+loadTable("dfs://ficc_data2","bond_yield_curve").append!(temp)
+
+truncate("dfs://ficc_data2", "curve")
+
+curveNameDict={
+    "上海清算所中短期票据收益率曲线(A+)": "SQS_CNY_MTN_A+",
+    "上海清算所中短期票据收益率曲线(AA)": "SQS_CNY_MTN_AA",
+    "上海清算所中短期票据收益率曲线(AA+)": "SQS_CNY_MTN_AA+",
+    "上海清算所中短期票据收益率曲线(AA-)": "SQS_CNY_MTN_AA-",
+    "上海清算所中短期票据收益率曲线(AAA)": "SQS_CNY_MTN_AAA",
+    "上海清算所中短期票据收益率曲线(AAA-)": "SQS_CNY_MTN_AAA-",
+    "上海清算所中短期票据收益率曲线(超AAA)": "SQS_CNY_MTN_AAA+",
+    "上海清算所农发行债收益率曲线": "SQS_CNY_ADBC_BOND",
+    "上海清算所商业银行债收益率曲线(AA+)": "SQS_CNY_COMM_BANK_FIN_AA+",
+    "上海清算所商业银行债收益率曲线(AAA)": "SQS_CNY_COMM_BANK_FIN_AAA",
+    "上海清算所固定利率同业存单收益率曲线(A+)": "SQS_CNY_NCD_A+",
+    "上海清算所固定利率同业存单收益率曲线(AA)": "SQS_CNY_NCD_AA",
+    "上海清算所固定利率同业存单收益率曲线(AA+)": "SQS_CNY_NCD_AA+",
+    "上海清算所固定利率同业存单收益率曲线(AA-)": "SQS_CNY_NCD_AA-",
+    "上海清算所固定利率同业存单收益率曲线(AAA)": "SQS_CNY_NCD_AAA",
+    "上海清算所国债收益率曲线": "CNY_TREASURY_BOND",
+    "上海清算所国开债收益率曲线": "SQS_CNY_CDB_BOND",
+    "上海清算所地方政府债收益率曲线(AAA)": "SQS_CNY_LOC_GOV_AAA",
+    "上海清算所城投债收益率曲线(AA)": "",
+    "上海清算所城投债收益率曲线(AA+)": "",
+    "上海清算所城投债收益率曲线(AA-)": "",
+    "上海清算所城投债收益率曲线(AAA)": "",
+    "上海清算所进出口行债收益率曲线": "SQS_CNY_EIBC_BOND",
+    "上海清算所铁道债收益率曲线": "",
+    "上海清算所中资美元债收益率曲线(A)": "",
+    "上海清算所中资美元债收益率曲线(A+)": "",
+    "上海清算所中资美元债收益率曲线(A-)": "",
+    "上海清算所中资美元债收益率曲线(BBB)": "",
+    "上海清算所中资美元债收益率曲线(BBB+)": "",
+    "上海清算所中资美元债收益率曲线(BBB-)": "",
+    "中期票据(1Y_Depo)(AA)浮动利率点差": "CNY_MTN_AA_DEPO_1Y",
+    "中期票据(1Y_Depo)(AA+)浮动利率点差": "CNY_MTN_AA+_DEPO_1Y",
+    "中期票据(1Y_Depo)(AA-)浮动利率点差": "CNY_MTN_AA-_DEPO_1Y",
+    "中期票据(1Y_Depo)(AAA)浮动利率点差": "CNY_MTN_AAA_DEPO_1Y",
+    "中短期票据(A)": "CNY_MTN_A",
+    "中短期票据(A+)": "CNY_MTN_A+",
+    "中短期票据(A-)": "CNY_MTN_A-",
+    "中短期票据(AA)": "CNY_MTN_AA",
+    "中短期票据(AA+)": "CNY_MTN_AA+",
+    "中短期票据(AA-)": "CNY_MTN_AA-",
+    "中短期票据(AAA)": "CNY_MTN_AAA",
+    "中短期票据(AAA+)": "CNY_MTN_AAA+",
+    "中短期票据(AAA-)": "CNY_MTN_AAA-",
+    "企业债(1Y_Depo)(AAA)浮动利率点差": "CNY_CORP_AAA_DEPO_1Y",
+    "企业债(A)": "CNY_CORP_A",
+    "企业债(A+)": "CNY_CORP_A+",
+    "企业债(A-)": "CNY_CORP_A-",
+    "企业债(AAA-)": "CNY_CORP_AAA-",
+    "企业债(B)": "CNY_CORP_B",
+    "企业债(BB)": "CNY_CORP_BB",
+    "企业债(BBB)": "CNY_CORP_BBB",
+    "企业债(BBB+)": "CNY_CORP_BBB+",
+    "企业债(Shibor_1Y)(AA+)浮动利率点差": "CNY_CORP_AA+_SHIBOR_1Y",
+    "企业债(Shibor_3M)(AAA)浮动利率点差": "CNY_CORP_AAA_SHIBOR_3M",
+    "同业存单(A)": "CNY_NCD_A",
+    "同业存单(A+)": "CNY_NCD_A+",
+    "同业存单(A-)": "CNY_NCD_A-",
+    "同业存单(AA)": "CNY_NCD_AA",
+    "同业存单(AA+)": "CNY_NCD_AA+",
+    "同业存单(AA-)": "CNY_NCD_AA-",
+    "同业存单(AAA)": "CNY_NCD_AAA",
+    "同业存单(AAA-)": "CNY_NCD_AAA-",
+    "商业银行二级资本债(A)": "CNY_BANK_SUB_CAP_A",
+    "商业银行二级资本债(A+)": "CNY_BANK_SUB_CAP_A+",
+    "商业银行二级资本债(AA)": "CNY_BANK_SUB_CAP_AA",
+    "商业银行二级资本债(AA+)": "CNY_BANK_SUB_CAP_AA+",
+    "商业银行二级资本债(AA-)": "CNY_BANK_SUB_CAP_AA-",
+    "商业银行二级资本债(AAA-)": "CNY_BANK_SUB_CAP_AAA-",
+    "商业银行普通金融债(A)": "CNY_COMM_BANK_FIN_A",
+    "商业银行普通金融债(A+)": "CNY_COMM_BANK_FIN_A+",
+    "商业银行普通金融债(A-)": "CNY_COMM_BANK_FIN_A-",
+    "商业银行普通金融债(AA)": "CNY_COMM_BANK_FIN_AA",
+    "商业银行普通金融债(AA+)": "CNY_COMM_BANK_FIN_AA+",
+    "商业银行普通金融债(AA-)": "CNY_COMM_BANK_FIN_AA-",
+    "商业银行普通金融债(AAA)": "CNY_COMM_BANK_FIN_AAA",
+    "商业银行普通金融债(AAA-)": "CNY_COMM_BANK_FIN_AAA-",
+    "国债": "CNY_TREASURY_BOND",
+    "地方政府债(AAA)": "CNY_LOC_GOV_AAA",
+    "地方政府债(AAA-)": "CNY_LOC_GOV_AAA-",
+    "央行票据": "CNY_CENTRAL_BANK_BILL",
+    "政府支持机构债": "CNY_GSA_BOND",
+    "政府支持机构债(减税)": "CNY_GSA_BOND_TAX_EXEMPT",
+    "政策性金融债(1Y_Depo)浮动利率点差": "CNY_POLICY_BANK_DEPO_1Y",
+    "政策性金融债(Shibor_3M)浮动利率点差": "CNY_POLICY_BANK_SHIBOR_3M",
+    "政策性金融债(农发行)": "CNY_ADBC_BOND",
+    "政策性金融债(国开)": "CNY_CDB_BOND",
+    "政策性金融债(进出口行)": "CNY_EIBC_BOND",
+    "无担保企业债(AA(2))": "CNY_UNSECURED_CORP_AA",
+    "无担保企业债(AA+(2))": "CNY_UNSECURED_CORP_AA+",
+    "无担保企业债(AA-(2))": "CNY_UNSECURED_CORP_AA-",
+    "无担保企业债(AAA(2))": "CNY_UNSECURED_CORP_AAA",
+    "有担保企业债(AA)": "CNY_CORP_AA",
+    "有担保企业债(AA+)": "CNY_CORP_AA+",
+    "有担保企业债(AA-)": "CNY_CORP_AA-",
+    "有担保企业债(AAA)": "CNY_CORP_AAA",
+    "有担保企业债(AAA+)": "CNY_CORP_AAA+",
+    "证券公司短期融资券(AA)": "CNY_SC_FIN_BILL_AA",
+    "证券公司短期融资券(AA+)": "CNY_SC_FIN_BILL_AA+",
+    "证券公司短期融资券(AAA)": "CNY_SC_FIN_BILL_AAA",
+    "资产支持证券(AA+)": "CNY_ABS_AA+",
+    "资产支持证券(AAA)": "CNY_ABS_AAA",
+    "资产支持证券(AAA-)": "CNY_ABS_AAA-",
+    "非公开发行债(AA)": "CNY_PPN_AA",
+    "非公开发行债(AA+)": "CNY_PPN_AA+",
+    "非公开发行债(AA-)": "CNY_PPN_AA-",
+    "非公开发行债(AAA)": "CNY_PPN_AAA",
+    "非公开发行债(AAA-)": "CNY_PPN_AAA-",
+    "政策性金融债(LPR_1Y)浮动利率点差": ""
+}
+
+// 形成dates和values列表
+curveName=exec distinct curveName from loadTable("dfs://ficc_data2","bond_yield_curve")
+curveName=curveName.flatten()
+date=exec distinct date from loadTable("dfs://ficc_data2","bond_yield_curve") 
+date=date.flatten().distinct()
+
+
+for (j in date){
+    for (i in curveName){
+        // 处理到期数据
+        temp=select * from loadTable("dfs://ficc_data2","bond_yield_curve") where date==j and curveName==i and spotYield !=NULL and term !=0
+        if (count(temp)>0){
+            temp=select * from temp context by term limit -1
+            temp=select date,curveName, cast(term*365,int) as term , spotYield from temp
+            temp=select date,curveName,term, temporalAdd(j,term,"d") as dates , spotYield from temp order by dates
+            temp=select toArray(dates) as dates, toArray(spotYield/100) as values from temp group by date
+            cName=curveNameDict[i]
+            curve = {
+            "mktDataType": "Curve",
+            "curveType": "IrYieldCurve",
+            "referenceDate": j,
+            "dayCountConvention": "ActualActualISDA",
+            "curveName": cName,
+            "currency": "CNY",
+            "compounding": "Compounded",
+            "interpMethod": "Linear",
+            "extrapMethod": "Flat",
+            "frequency": "Annual",
+            "dates":temp.dates.flatten(),
+            "values":temp.values.flatten()
+            }
+            mktData = parseMktData(curve)
+            test=select date as referenceDate, cName as curveName , "IrYieldCurve" as curveType, mktData as marketData from temp
+            loadTable("dfs://ficc_data2", "curve").append!(test)
+        }
+    }
+}
+
+// =========================  导入国债期货数据 =======================
+
+temp=remoteRun(conn,'select * from loadTable("dfs://instrument_dbtest2","FutuCtd")')
+loadTable("dfs://ficc_data2","FutuCtd").append!(temp)
+
+// ================================
+// 完整的条件触发计算引擎示例代码
+// ================================
+// ================================
+// 完整的条件触发计算引擎示例代码
+// ================================
+
+// 1. 创建输入数据流表
+share streamTable(1:0, `timestamp`deviceId`metricsName`RmetricValue, 
+    [TIMESTAMP, SYMBOL, SYMBOL, DOUBLE]) as sensorData
+
+// 2. 创建状态事件输出表  
+share table(1000:0, `deviceId`metricsName`timestamp`eventB`eventC, 
+    [SYMBOL, SYMBOL, TIMESTAMP, BOOL, BOOL]) as stateEvents
+
+// 3. 创建响应式状态引擎，根据metricsName进行不同计算
+stateEngine = createReactiveStateEngine(
+    name="conditionalEngine",
+    metrics=<[
+        timestamp,
+        // 事件B：只对A001计算连续3次增量为1
+        iif(metricsName == "A001", 
+            msum(deltas(RmetricValue) == 1, 3) == 3, 
+            false),
+        // 事件C：只对R131计算连续3次大于-40  
+        iif(metricsName == "R131", 
+            msum(RmetricValue > -40, 3) == 3, 
+            false)
+    ]>,
+    dummyTable=sensorData,
+    outputTable=stateEvents,
+    keyColumn=["deviceId", "metricsName"]
+)
+
+// 4. 订阅流表
+subscribeTable(tableName=`sensorData, actionName="conditionalEngine", 
+    handler=tableInsert{stateEngine})
+
+// 5. 准备测试数据
+testData = table(
+    2024.01.01T10:00:01..2024.01.01T10:00:13 as timestamp,
+    take("DEV001", 13) as deviceId,
+    [9, 10, 11, 12, NULL, NULL, NULL, 12, 13, 14, 15, NULL, NULL] as A001,  
+    [NULL, NULL, NULL, NULL, -30, NULL, NULL, NULL, NULL, NULL, -35, -20, -15] as R131,  
+    [NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 5, 50] as R134
+)
+
+// 6. 转换为长格式数据
+testDataLong = select timestamp, deviceId, valueType as metricsName, value as RmetricValue
+from unpivot(testData, `timestamp`deviceId, `A001`R131`R134)
+where value is not null
+order by timestamp
+
+// 7. 插入测试数据
+sensorData.append!(testDataLong)
+
+// 8. 等待计算完成并查看结果
+sleep(1)
+results = select * from stateEvents order by timestamp, metricsName
+
+// 9. 清理资源
+unsubscribeTable("", "sensorData", "conditionalEngine")
+dropStreamEngine("conditionalEngine")
+
+// 输出最终结果（必须是最后一行，不能用print）
+results

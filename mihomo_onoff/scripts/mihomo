@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE_DIR="${MIHOMO_BASE_DIR:-$HOME/clash}"
+CORE_BIN="${MIHOMO_CORE_BIN:-$HOME/.local/bin/mihomo-core}"
+CONF_FILE="${MIHOMO_CONF_FILE:-$BASE_DIR/config-min.yaml}"
+LOG_FILE="${MIHOMO_LOG_FILE:-$BASE_DIR/mihomo.log}"
+PID_FILE="${MIHOMO_PID_FILE:-$BASE_DIR/mihomo.pid}"
+
+find_running_pid() {
+  ps -eo pid=,args= | awk -v core="$CORE_BIN" 'index($0, core" -d ") > 0 {print $1}' | tail -n 1
+}
+
+kill_all_mihomo() {
+  pids="$(ps -eo pid=,args= | awk -v core="$CORE_BIN" 'index($0, core" -d ") > 0 {print $1}')"
+  if [ -n "${pids:-}" ]; then
+    echo "$pids" | xargs -r kill 2>/dev/null || true
+  fi
+}
+
+start_mihomo() {
+  mkdir -p "$BASE_DIR"
+  if [ ! -x "$CORE_BIN" ]; then
+    echo "[ERR] core binary not found: $CORE_BIN"
+    exit 1
+  fi
+  if [ ! -f "$CONF_FILE" ]; then
+    echo "[ERR] config not found: $CONF_FILE"
+    exit 1
+  fi
+
+  running_pid="$(find_running_pid)"
+  if [ -n "$running_pid" ] && kill -0 "$running_pid" 2>/dev/null; then
+    echo "$running_pid" > "$PID_FILE"
+    echo "[OK] mihomo already running, pid=$running_pid"
+    exit 0
+  fi
+
+  kill_all_mihomo
+  nohup "$CORE_BIN" -d "$BASE_DIR" -f "$CONF_FILE" > "$LOG_FILE" 2>&1 &
+  sleep 1
+
+  real_pid="$(find_running_pid)"
+  if [ -n "$real_pid" ] && kill -0 "$real_pid" 2>/dev/null; then
+    echo "$real_pid" > "$PID_FILE"
+    echo "[OK] mihomo started, pid=$real_pid"
+    echo "[OK] proxy: 127.0.0.1:7890, controller: 127.0.0.1:9090"
+  else
+    echo "[ERR] mihomo failed to start. check log: $LOG_FILE"
+    exit 1
+  fi
+}
+
+stop_mihomo() {
+  if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    kill "$(cat "$PID_FILE")" 2>/dev/null || true
+    sleep 1
+  fi
+  kill_all_mihomo
+  sleep 1
+  rm -f "$PID_FILE"
+  if pid_now="$(find_running_pid)" && [ -n "$pid_now" ] && kill -0 "$pid_now" 2>/dev/null; then
+    echo "[ERR] failed to stop completely, still running pid=$pid_now"
+    exit 1
+  fi
+  echo "[OK] mihomo stopped"
+}
+
+status_mihomo() {
+  running_pid="$(find_running_pid)"
+  if [ -n "$running_pid" ] && kill -0 "$running_pid" 2>/dev/null; then
+    echo "$running_pid" > "$PID_FILE"
+    echo "[OK] running, pid=$running_pid"
+  else
+    echo "[INFO] not running"
+    exit 1
+  fi
+}
+
+case "${1:-}" in
+  on|start)
+    start_mihomo
+    ;;
+  off|stop)
+    stop_mihomo
+    ;;
+  status)
+    status_mihomo
+    ;;
+  -v|--version)
+    exec "$CORE_BIN" -v
+    ;;
+  "")
+    echo "Usage: mihomo {on|off|status|--version|<raw args...>}"
+    exit 1
+    ;;
+  *)
+    exec "$CORE_BIN" "$@"
+    ;;
+esac

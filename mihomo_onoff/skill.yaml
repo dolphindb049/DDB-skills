@@ -1,0 +1,30 @@
+name: mihomo_onoff
+version: 1.1.0
+summary: Portable Mihomo (Clash.Meta) on/off workflow for Linux servers
+author: jrzhang
+license: MIT
+tags:
+  - mihomo
+  - clash-meta
+  - proxy
+  - linux
+  - ops
+compatibility:
+  os:
+    - linux
+  shells:
+    - bash
+  requirements:
+    - curl
+    - gzip/gunzip
+    - ssh/scp (optional for remote distribution)
+artifacts:
+  - scripts/install_local.sh
+  - scripts/mihomo
+  - scripts/generate_min_config.sh
+  - scripts/distribute_wrapper.sh
+  - templates/config-min-note.txt
+entrypoints:
+  local_install: scripts/install_local.sh
+  start_stop: scripts/mihomo
+  remote_copy: scripts/distribute_wrapper.sh

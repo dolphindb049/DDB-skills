@@ -1,0 +1,9 @@
+This skill uses a minimal Clash config strategy:
+- Keep proxies/proxy-groups from subscription
+- Set mode: global
+- Replace rules with one rule:
+  - MATCH,🚀 节点选择
+
+Reason:
+- Avoid startup failures when GEOIP/MMDB auto-download times out
+- Prioritize "first run success" in constrained server environments

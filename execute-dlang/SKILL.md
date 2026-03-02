@@ -86,9 +86,9 @@ uv run .github/skills/execute-dlang/scripts/ddb_runner/execute.py -c "avg(y)" --
     *   尽量不要一次性发送 MB 级别的 SQL 脚本。
     *   将大任务拆分为多个 `.dos` 文件，使用 `include` 或分次执行。
 
-### 4. 数据类型陷阱
+### 4. 数据类型陷阱与格式化
 *   **现象**: 也就是 Python 接收到的数据格式看起来很奇怪（如 Dictionary 变成了 String）。
-*   **原因**: `server.py` 为了通用性，使用 `str(result)` 将结果转为字符串发回。这对于查看标量或小表很方便，但对于进一步的数据处理不便。
+*   **优化**: 现在的脚本已经内置了 `pandas` 依赖，当 DolphinDB 返回 Table 时，会自动使用 `pandas.DataFrame.to_string(index=False)` 进行格式化输出，使其在终端中更易读。对于 List 和 Dict，也会使用 `pprint` 进行美化。
 *   **建议**: 本工具定位为**执行与验证**。如需进行大规模数据拉取与分析（如 Pandas 处理），请直接使用 Python SDK (`import dolphindb`) 编写专门的数据处理脚本，而不是依赖本工具的 shell 输出。
 
 ## 📂 文件清单

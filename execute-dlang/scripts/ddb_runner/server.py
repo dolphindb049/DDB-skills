@@ -3,6 +3,7 @@
 # dependencies = [
 #     "dolphindb",
 #     "python-dotenv",
+#     "pandas",
 # ]
 # ///
 import dolphindb as ddb
@@ -10,6 +11,7 @@ import socket
 import sys
 import os
 from dotenv import load_dotenv
+import pandas as pd
 
 import argparse
 
@@ -72,7 +74,13 @@ def start_server(args):
                     
                     try:
                         result = session.run(script)
-                        output = str(result)
+                        if isinstance(result, pd.DataFrame):
+                            output = result.to_string(index=False)
+                        elif isinstance(result, list) or isinstance(result, dict):
+                            import pprint
+                            output = pprint.pformat(result)
+                        else:
+                            output = str(result)
                         conn.sendall(output.encode('utf-8'))
                     except Exception as e:
                         error_msg = f"Error: {str(e)}"

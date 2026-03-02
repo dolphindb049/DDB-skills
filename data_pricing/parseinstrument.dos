@@ -1,0 +1,1312 @@
+
+
+// save_instrument MCP 工具（简化版）
+description_save_instrument_new = '
+用于将债券信息解析并存储到数据库的instrument表中。
+
+参数说明：
+- bond: STRING，JSON格式的债券定义，包含以下字段：
+  * productType: STRING，固定填 "Cash"
+  * assetType: STRING，固定填 "Bond"
+  * bondType: STRING，债券类型，可选值："DiscountBond", "ZeroCouponBond", "FixedRateBond"
+  * version: INT，版本号，默认值 0
+  * nominal: DOUBLE，名义金额，默认值 100
+  * instrumentId: STRING，债券代码，如 "259926.IB"
+  * start: DATE，起息日
+  * maturity: DATE，到期日
+  * dayCountConvention: STRING，日期计数惯例，可选 "ActualActualISDA", "ActualActualISMA", "Actual365", "Actual360"
+  * issuePrice: DOUBLE，发行价格（贴现债必填）
+  * coupon: DOUBLE，票面利率（固定利率债和零息债必填）
+  * frequency: STRING，付息频率（固定利率债和零息债必填）
+  * currency: STRING，货币，默认为 "CNY"
+  * cashFlow: TABLE，债券现金流表（可选）
+  * discountCurve: STRING，定价时参考的贴现曲线名称（可选，与subType必选其一）
+  * spreadCurve: STRING，定价时参考的利差曲线名称（可选）
+  * subType: STRING，债券子类型（可选，与discountCurve必选其一），可选值：
+    - "TREASURY_BOND"：国债
+    - "CENTRAL_BANK_BILL"：央行票据
+    - "CDB_BOND"：政策性金融债（国开）
+    - "EIBC_BOND"：政策性金融债（进出口行）
+    - "ADBC_BOND"：政策性金融债（农发行）
+    - "MTN"：中期票据
+    - "CORP_BOND"：企业债
+    - "UNSECURED_CORP_BOND"：无担保企业债
+    - "SHORT_FIN_BOND"：短期融资券
+    - "NCD"：同业存单
+    - "LOC_GOV_BOND"：地方政府债
+    - "COMM_BANK_FIN_BOND"：商业银行普通金融债
+    - "BANK_SUB_CAP_BOND"：商业银行二级资本债
+    - "ABS"：资产支持证券
+    - "PPN"：非公开发行债
+  * creditRating: STRING，信用等级类型（可选），可选值："B", "BB", "BBB", "BBB+", "A-", "A", "A+", "AA-", "AA", "AA+", "AAA-", "AAA", "AAA+"
+
+- instrumentName: STRING，债券名称
+- listingDate: TEMPORAL，上市日期
+- market: STRING，市场代码
+
+返回值：
+返回操作结果信息
+
+示例：
+bond = "{\"productType\": \"Cash\", \"assetType\": \"Bond\", \"bondType\": \"FixedRateBond\", \"version\": 0, \"instrumentId\": \"250015.IB\", \"start\": \"2025.01.15\", \"maturity\": \"2028.01.15\", \"issuePrice\": 100.0, \"coupon\": 0.025, \"frequency\": \"Annual\", \"dayCountConvention\": \"ActualActualISDA\", \"currency\": \"CNY\", \"subType\": \"TREASURY_BOND\"}"
+instrumentName = "25国债15"
+listingDate = "2025.01.15"
+market = "IB"
+'
+
+// save_instrument MCP 工具（简化版）- 修正版
+def save_instrument_new_wrapper(bond, instrumentName, listingDate, market) {
+        // 解析债券JSON
+        bondDict = fromStdJson(bond)
+        
+        // 检查是否已存在
+        checkSql = 'select instrumentId, instrumentName, instrument from loadTable("dfs://ficc_data2", "instrument") where instrumentId = "' + bondDict["instrumentId"] + '"'
+        checkResult = parseExpr(checkSql).eval()
+        
+        if (size(checkResult) > 0) {
+            // 记录已存在，直接返回现有记录的详细信息
+            existingInstrument = checkResult.instrument[0]
+            instrumentDict = extractInstrument(existingInstrument)
+            
+            result = dict(`status`message`instrumentId`instrumentDict, 
+                         ["exists", "债券已存在，返回现有记录", bondDict["instrumentId"], instrumentDict])
+        } else {
+            // 记录不存在，插入新记录
+            // 使用parseInstrument解析为结构化数据
+            instrumentObj = parseInstrument(bondDict)
+            
+            // 提取instrument详细信息
+            instrumentDict = extractInstrument(instrumentObj)
+            
+            // 准备插入数据
+            insertData = table(
+                [bondDict["instrumentId"]] as instrumentId,
+                [instrumentName] as instrumentName,
+                [bondDict["assetType"]] as assetType,
+                [date(listingDate)] as listingDate,
+                [market] as market,
+                [instrumentObj] as instrument,
+                "test" as extra
+            )
+            
+            // 插入新记录
+            instrumentTb = loadTable("dfs://ficc_data2", "instrument")
+            instrumentTb.append!(insertData)
+            
+            result = dict(`status`message`instrumentId`instrumentDict, 
+                         ["inserted", "债券保存成功", bondDict["instrumentId"], instrumentDict])
+        }
+        
+        return toStdJson(result)
+
+}
+
+// save_curve MCP 工具（简化版）
+description_save_curve_new = '
+用于将市场数据曲线解析并存储到数据库的curve表中。
+
+参数说明：
+- curveData: STRING，JSON格式的曲线数据，包含以下字段：
+  * mktDataType: STRING，固定填 "Curve"
+  * referenceDate: DATE，参考日期
+  * version: INT，版本号，默认值 0
+  * curveType: STRING，固定填 "IrYieldCurve"
+  * dayCountConvention: STRING，曲线的日期计数惯例，可选值：
+    - "Actual360"：实际天数除以360
+    - "Actual365"：实际天数除以365（不区分闰年）
+    - "ActualActualISMA"：实际天数/实际天数（ISMA规则）
+    - "ActualActualISDA"：实际天数/实际天数（ISDA规则）
+  * interpMethod: STRING，内插方法，可选值：
+    - "Linear"：线性插值
+    - "CubicSpline"：三次样条插值
+    - "CubicHermiteSpline"：三次埃尔米特样条插值
+  * extrapMethod: STRING，外插方法，可选值：
+    - "Flat"：平插
+    - "Linear"：线性插值
+  * dates: DATE[]，数据点的日期
+  * values: DOUBLE[]，数据点的值，与dates中的元素一一对应
+  * curveName: STRING，曲线名称（可选）
+  * currency: STRING，货币，可选值："CNY", "USD", "EUR", "GBP", "JPY", "HKD"
+  * compounding: STRING，复利类型，可选值：
+    - "Simple"：单利
+    - "Compounded"：离散复利
+    - "Continuous"：连续复利
+  * settlement: DATE，结算日（可选）
+  * frequency: STRING，计息频率（可选），可选值：
+    - "NoFrequency"：无效计息频率
+    - "Once"：到期一次还本付息
+    - "Annual"：每年付息一次
+    - "Semiannual"：每半年付息一次
+    - "EveryFourthMonth"：每四个月付息一次
+    - "Quarterly"：每季度付息一次
+    - "BiMonthly"：每两月付息一次
+    - "Monthly"：每月付息一次
+    - "EveryFourthWeek"：每四周付息一次
+    - "BiWeekly"：每两周付息一次
+    - "Weekly"：每周付息一次
+    - "Daily"：每日付息一次
+    - "Other"：其他计息频率
+  * curveModel: STRING，曲线构建模型（可选），可选值："Bootstrap"（默认）, "NS", "NSS"
+  * curveParams: DICT，模型的参数（当curveModel为"NS"或"NSS"时必填）
+
+返回值：
+返回操作结果信息
+
+示例：
+curveData = "{\"mktDataType\": \"Curve\", \"curveType\": \"IrYieldCurve\", \"referenceDate\": \"2025.08.18\", \"currency\": \"CNY\", \"curveName\": \"CNY_TREASURY_BOND\", \"dayCountConvention\": \"ActualActualISDA\", \"compounding\": \"Compounded\", \"interpMethod\": \"Linear\", \"extrapMethod\": \"Flat\", \"frequency\": \"Annual\", \"dates\": [\"2025.09.18\", \"2025.11.18\"], \"values\": [0.013, 0.0137]}"
+'
+
+
+// save_curve MCP 工具（简化版）- 修正版
+def save_curve_new_wrapper(curveData) {
+
+    // 解析曲线JSON
+    curveDict = fromStdJson(curveData)
+    
+    // 从字典中提取信息
+    referenceDate = curveDict["referenceDate"]
+    curveName = curveDict["curveName"]
+    curveType = curveDict["curveType"]
+    
+    // 检查是否已存在
+    checkSql = 'select referenceDate, curveName, marketData from loadTable("dfs://ficc_data2", "curve") where referenceDate = ' + string(date(referenceDate)) + ' and curveName = "' + curveName + '"'
+    checkResult = parseExpr(checkSql).eval()
+    
+    if (size(checkResult) > 0) {
+        // 记录已存在，直接返回现有记录的详细信息
+        existingMarketData = checkResult.marketData[0]
+        marketDataDict = extractMktData(existingMarketData)
+        
+        result = dict(`status`message`curveName`referenceDate`marketDataDict, 
+                        ["exists", "曲线已存在，返回现有记录", curveName, string(date(referenceDate)), marketDataDict])
+    } else {
+        // 记录不存在，插入新记录
+        // 使用parseMktData解析为结构化数据
+        marketDataObj = parseMktData(curveDict)
+        
+        // 提取marketData详细信息
+        marketDataDict = extractMktData(marketDataObj)
+        
+        // 准备插入数据
+        insertData = table(
+            [date(referenceDate)] as referenceDate,
+            [curveName] as curveName,
+            [curveType] as curveType,
+            [marketDataObj] as marketData
+        )
+        
+        // 插入到数据库表
+        curveTb = loadTable("dfs://ficc_data2", "curve")
+        curveTb.append!(insertData)
+        
+        result = dict(`status`message`curveName`referenceDate`marketDataDict, 
+                        ["inserted", "曲线保存成功", curveName, string(date(referenceDate)), marketDataDict])
+    }
+    
+    return toStdJson(result)
+}
+
+
+// 注册新的MCP工具
+if (`save_instrument_new in (exec name from listMCPTools())) {
+    updateMCPTool(`save_instrument_new, save_instrument_new_wrapper,
+        `bond`instrumentName`listingDate`market,
+        ["STRING", "STRING", "TEMPORAL", "STRING"],
+        description_save_instrument_new)
+} else {
+    addMCPTool(`save_instrument_new, save_instrument_new_wrapper,
+        `bond`instrumentName`listingDate`market,
+        ["STRING", "STRING", "TEMPORAL", "STRING"],
+        description_save_instrument_new)
+}
+
+if (`save_curve_new in (exec name from listMCPTools())) {
+    updateMCPTool(`save_curve_new, save_curve_new_wrapper,
+        [`curveData],
+        ["STRING"],
+        description_save_curve_new)
+} else {
+    addMCPTool(`save_curve_new, save_curve_new_wrapper,
+        [`curveData],
+        ["STRING"],
+        description_save_curve_new)
+}
+
+// 发布工具
+publishMCPTools(`save_instrument_new`save_curve_new)
+
+
+// bond_pricer MCP 工具（新版本）
+description_bond_pricer_new = '
+用于对单只债券进行定价，支持筛选条件和直接输入债券/曲线数据两种方式。
+
+参数说明：
+- instrumentWhere: STRING，筛选instrument表的WHERE条件，如"instrumentId = \"250015.IB\""
+    债券筛选可用列：
+    - instrumentId（优先）：债券代码
+    - instrumentName：债券名称
+    - assetType：资产类型
+    - listingDate：上市日期
+    - market：市场代码
+
+
+- curveWhere: STRING，筛选curve表的WHERE条件（必须包括referenceDate），如"curveName = \"CNY_TREASURY_BOND\" and referenceDate = 2025.04.01"
+    曲线筛选可用列：
+    - referenceDate（优先）：参考日期
+    - curveName（优先）：曲线名称
+    - curveType：曲线类型
+
+- pricingDate: TEMPORAL，定价日期，应该和curveWhere 中的 referenceDate 相同
+
+- bond: STRING，JSON格式的债券定义（可选），如果为空字符串""则从数据库筛选，包含以下字段：
+  * mktDataType: STRING，固定填 "Curve"
+  * curveType: STRING，固定填 "IrYieldCurve"
+  * referenceDate: TEMPORAL，参考日期
+  * currency: STRING，货币
+  * curveName: STRING，曲线名称（可选）
+  * dayCountConvention: STRING，日期计数惯例
+  * compounding: STRING，复利类型，可选值："Simple", "Compounded", "Continuous"
+  * interpMethod: STRING，内插方法，可选值："Linear", "CubicSpline", "CubicHermiteSpline"
+  * extrapMethod: STRING，外插方法，可选值："Flat", "Linear"
+  * frequency: STRING，计息频率
+  * dates: DATE[]，数据点的日期
+  * values: DOUBLE[]，数据点的值
+
+- curveData: STRING，JSON格式的曲线数据（可选），如果为空字符串""则从数据库筛选，，包含以下字段：
+  * mktDataType: STRING，固定填 "Curve"
+  * curveType: STRING，固定填 "IrYieldCurve"
+  * referenceDate: TEMPORAL，参考日期
+  * currency: STRING，货币
+  * curveName: STRING，曲线名称（可选）
+  * dayCountConvention: STRING，日期计数惯例
+  * compounding: STRING，复利类型，可选值："Simple", "Compounded", "Continuous"
+  * interpMethod: STRING，内插方法，可选值："Linear", "CubicSpline", "CubicHermiteSpline"
+  * extrapMethod: STRING，外插方法，可选值："Flat", "Linear"
+  * frequency: STRING，计息频率
+  * dates: DATE[]，数据点的日期
+  * values: DOUBLE[]，数据点的值
+
+- spreadCurve: STRING，JSON格式的信用利差曲线定义（可选），传空字符串""表示不使用，结构与discountCurve相同
+
+- setting: STRING，JSON格式的设置字典（可选），传空字符串""表示只计算NPV，包含以下键：
+  * calcDiscountCurveDelta: BOOL，是否计算债券对贴现曲线的一阶敏感度
+  * calcDiscountCurveGamma: BOOL，是否计算债券对贴现曲线的二阶敏感度
+  * calcDiscountCurveKeyRateDuration: BOOL，是否计算债券的关键利率久期
+  * discountCurveShift: DOUBLE，贴现曲线的平行扰动，如0.0001
+  * discountCurveKeyTerms: DOUBLE[]，关键期限年数，如[1.0, 3.0, 5.0]
+  * discountCurveKeyShifts: DOUBLE[]，关键期限的扰动幅度，如[0.0001, 0.0002, 0.0015]
+
+返回值：
+如果筛选结果不为1条记录，返回筛选结果信息；如果为1条记录，返回定价结果
+
+示例1（使用筛选条件）：
+instrumentWhere = "instrumentId = \"220019.IB\""
+curveWhere = "curveName = \"SQS_CNY_TREASURY_BOND\" and referenceDate = 2025.04.01"
+pricingDate = "2025.04.01"
+bond = ""
+curveData = ""
+spreadCurve = ""
+setting = ""
+
+示例2（直接输入数据）：
+instrumentWhere = ""
+curveWhere = ""
+pricingDate = "2025.04.01"
+bond = "{\"productType\": \"Cash\", \"assetType\": \"Bond\", \"bondType\": \"FixedRateBond\", \"instrumentId\": \"250015.IB\", \"start\": \"2025.01.15\", \"maturity\": \"2028.01.15\", \"coupon\": 0.025, \"frequency\": \"Annual\", \"dayCountConvention\": \"ActualActualISDA\"}"
+curveData = "{\"mktDataType\": \"Curve\", \"curveType\": \"IrYieldCurve\", \"referenceDate\": \"2025.04.01\", \"currency\": \"CNY\", \"curveName\": \"CNY_TREASURY_BOND\", \"dayCountConvention\": \"ActualActualISDA\", \"compounding\": \"Compounded\", \"interpMethod\": \"Linear\", \"extrapMethod\": \"Flat\", \"frequency\": \"Annual\", \"dates\": [\"2025.05.01\", \"2026.04.01\"], \"values\": [0.025, 0.03]}"
+spreadCurve = ""
+setting = ""
+'
+
+def bond_pricer_new_wrapper(instrumentWhere, curveWhere, pricingDate, bond, curveData, spreadCurve, setting) {
+    bondObj = NULL
+    curveObj = NULL
+    
+    // 处理债券数据
+    if (bond != "" && !isNull(bond)) {
+        // 直接使用输入的债券数据
+        bondDict = fromStdJson(bond)
+        bondObj = parseInstrument(bondDict)
+    } else if (instrumentWhere != "" && !isNull(instrumentWhere)) {
+        // 从数据库筛选债券
+        instrumentSql = 'select instrumentId, instrumentName, assetType, listingDate, market from loadTable("dfs://ficc_data2", "instrument") where ' + instrumentWhere
+        instrumentResult = parseExpr(instrumentSql).eval()
+        
+        if (size(instrumentResult) == 0) {
+            return "未找到匹配的债券记录，筛选条件: " + instrumentWhere
+        } else if (size(instrumentResult) > 1) {
+            return "找到多条债券记录(" + string(size(instrumentResult)) + "条)，请使用更精确的筛选条件。前10条匹配记录:\n" + toStdJson(select * from instrumentResult limit 10)
+        } else {
+            // 获取完整的instrument数据
+            fullInstrumentSql = 'select instrument from loadTable("dfs://ficc_data2", "instrument") where ' + instrumentWhere
+            fullInstrumentData = parseExpr(fullInstrumentSql).eval()
+            bondObj = fullInstrumentData.instrument[0]
+        }
+    } else {
+        return "请提供债券筛选条件或直接输入债券数据"
+    }
+    
+    // 处理曲线数据
+    if (curveData != "" && !isNull(curveData)) {
+        // 直接使用输入的曲线数据
+        curveDict = fromStdJson(curveData)
+        curveObj = parseMktData(curveDict)
+    } else if (curveWhere != "" && !isNull(curveWhere)) {
+        // 从数据库筛选曲线
+
+        curveSql = 'select referenceDate, curveName, curveType from loadTable("dfs://ficc_data2", "curve") where ' + curveWhere
+        curveResult = parseExpr(curveSql).eval()
+        
+        if (size(curveResult) == 0) {
+            return "未找到匹配的曲线记录，筛选条件: " + curveWhere
+        } else if (size(curveResult) > 1) {
+            return "找到多条曲线记录(" + string(size(curveResult)) + "条)，请使用更精确的筛选条件。前10条匹配记录:\n" + toStdJson(select * from curveResult limit 10)
+        } else {
+            // 获取完整的curve数据
+            fullCurveSql = 'select referenceDate, curveName, curveType, marketData from loadTable("dfs://ficc_data2", "curve") where ' + curveWhere
+            fullCurveData = parseExpr(fullCurveSql).eval()
+            curveObj = fullCurveData.marketData[0]
+        }
+    } else {
+        return "请提供曲线筛选条件或直接输入曲线数据"
+    }
+    
+    // 处理利差曲线参数
+    spreadCurveObj = NULL
+    if (spreadCurve != "" && !isNull(spreadCurve)) {
+        spreadCurveObj = parseMktData(fromStdJson(spreadCurve))
+    }
+    
+    // 转换定价日期
+    pricingDateObj = date(pricingDate)
+    
+    // 处理设置参数并进行定价
+    if (setting == "" || isNull(setting)) {
+        // 只计算NPV
+        if (spreadCurveObj == NULL) {
+            result = bondPricer(bondObj, pricingDateObj, curveObj)
+        } else {
+            result = bondPricer(bondObj, pricingDateObj, curveObj, spreadCurveObj)
+        }
+        return "定价结果 (NPV): " + string(result)
+    } else {
+        // 计算NPV和风险指标
+        settingObj = fromStdJson(setting)
+        if (spreadCurveObj == NULL) {
+            result = bondPricer(bondObj, pricingDateObj, curveObj, setting=settingObj)
+        } else {
+            result = bondPricer(bondObj, pricingDateObj, curveObj, spreadCurveObj, settingObj)
+        }
+        return "定价结果: " + toStdJson(result)
+    }
+}
+
+if (`bond_pricer_new in (exec name from listMCPTools())) {
+    updateMCPTool(`bond_pricer_new, bond_pricer_new_wrapper,
+        `instrumentWhere`curveWhere`pricingDate`bond`curveData`spreadCurve`setting,
+        ["STRING", "STRING", "TEMPORAL", "STRING", "STRING", "STRING", "STRING"],
+        description_bond_pricer_new)
+} else {
+    addMCPTool(`bond_pricer_new, bond_pricer_new_wrapper,
+        `instrumentWhere`curveWhere`pricingDate`bond`curveData`spreadCurve`setting,
+        ["STRING", "STRING", "TEMPORAL", "STRING", "STRING", "STRING", "STRING"],
+        description_bond_pricer_new)
+}
+
+
+publishMCPTools(`bond_pricer_new)
+// 发布所有工具
+// publishMCPTools(`save_instrument`save_curve`bond_pricer_new)
+
+
+description_delete_instrument = '
+根据债券代码删除instrument表中的记录。
+
+参数说明：
+- instrumentId: STRING，要删除的债券代码
+
+返回值：
+返回删除操作结果
+
+示例：
+instrumentId = "250015.IB"
+'
+
+def delete_instrument_wrapper(instrumentId) {
+    try {
+        // 先查询要删除的记录
+        checkSql = 'select instrumentId, instrumentName from loadTable("dfs://ficc_data2", "instrument") where instrumentId = "' + instrumentId + '"'
+        checkResult = parseExpr(checkSql).eval()
+        
+        if (size(checkResult) == 0) {
+            return "未找到债券代码为 " + instrumentId + " 的记录"
+        }
+        
+        // 执行删除
+        tb = loadTable("dfs://ficc_data2", "instrument")  
+  
+        // 使用sqlDelete函数  
+        sqlDelete(tb, <instrumentId = instrumentId>).eval()
+        
+        return "成功删除 " + string(size(checkResult)) + " 条记录，债券代码: " + instrumentId
+        
+    } catch(ex) {
+        return "删除失败: " + string(ex)
+    }
+}
+
+// delete_curve MCP 工具
+description_delete_curve = '
+根据参考日期和曲线名称删除curve表中的记录。
+
+参数说明：
+- referenceDate: TEMPORAL，参考日期
+- curveName: STRING，曲线名称
+
+返回值：
+返回删除操作结果
+
+示例：
+referenceDate = "2025.08.18"
+curveName = "CNY_TREASURY_BOND"
+'
+
+def delete_curve_wrapper(referenceDate, curveName) {
+    try {
+        // 先查询要删除的记录
+        checkSql = 'select referenceDate, curveName from loadTable("dfs://ficc_data2", "curve") where referenceDate = ' + string(date(referenceDate)) + ' and curveName = "' + curveName + '"'
+        checkResult = parseExpr(checkSql).eval()
+        
+        if (size(checkResult) == 0) {
+            return "未找到参考日期为 " + string(date(referenceDate)) + "，曲线名称为 " + curveName + " 的记录"
+        }
+        
+        // 执行删除
+        tb = loadTable("dfs://ficc_data2", "curve")  
+  
+        // 使用sqlDelete函数  
+        sqlDelete(tb, <referenceDate = date(referenceDate) and curveName = curveName>).eval()
+                
+        return "成功删除 " + string(size(checkResult)) + " 条记录，参考日期: " + string(date(referenceDate)) + "，曲线名称: " + curveName
+        
+    } catch(ex) {
+        return "删除失败: " + string(ex)
+    }
+}
+
+if (`delete_instrument in (exec name from listMCPTools())) {
+    updateMCPTool(`delete_instrument, delete_instrument_wrapper,
+        [`instrumentId],
+        ["STRING"],
+        description_delete_instrument)
+} else {
+    addMCPTool(`delete_instrument, delete_instrument_wrapper,
+        [`instrumentId],
+        ["STRING"],
+        description_delete_instrument)
+}
+
+if (`delete_curve in (exec name from listMCPTools())) {
+    updateMCPTool(`delete_curve, delete_curve_wrapper,
+        `referenceDate`curveName,
+        ["TEMPORAL", "STRING"],
+        description_delete_curve)
+} else {
+    addMCPTool(`delete_curve, delete_curve_wrapper,
+        `referenceDate`curveName,
+        ["TEMPORAL", "STRING"],
+        description_delete_curve)
+}
+
+// 发布工具
+publishMCPTools(`delete_instrument`delete_curve)
+
+
+// query_instrument MCP 工具
+description_query_instrument = '
+查询数据库中现有的债券记录信息。
+
+参数说明：
+- instrumentWhere: STRING，筛选instrument表的WHERE条件，如"instrumentId = \"220019.IB\""或"instrumentName like \"%国债%\""
+
+债券筛选可用列：
+- instrumentId（优先）：债券代码
+- instrumentName：债券名称
+- assetType：资产类型
+- listingDate：上市日期
+- market：市场代码
+
+返回值：
+返回匹配的债券记录详细信息，包括基本信息和解析后的债券结构
+
+示例：
+instrumentWhere = "instrumentId = \"220019.IB\""
+或者：
+instrumentWhere = "instrumentName like \"%国债%\" and market = \"IB\""
+或者：
+instrumentWhere = "assetType = \"Bond\" limit 10"
+'
+
+def query_instrument_wrapper(instrumentWhere) {
+    try {
+        // 从数据库查询债券基本信息
+        instrumentSql = 'select instrumentId, instrumentName, assetType, listingDate, market from loadTable("dfs://ficc_data2", "instrument") where ' + instrumentWhere
+        instrumentResult = parseExpr(instrumentSql).eval()
+        
+        if (size(instrumentResult) == 0) {
+            return "未找到匹配的债券记录，筛选条件: " + instrumentWhere
+        }
+        
+        // 获取完整的instrument详细数据
+        fullInstrumentSql = 'select instrumentId, instrumentName, assetType, listingDate, market, instrument from loadTable("dfs://ficc_data2", "instrument") where ' + instrumentWhere
+        fullInstrumentData = parseExpr(fullInstrumentSql).eval()
+
+        keyInstrumentData = select instrumentId, instrumentName, assetType, listingDate, market from fullInstrumentData limit 10
+
+        // 仅返回第一条记录的详细信息
+        instrumentObj = fullInstrumentData.instrument[0]
+        instrumentDict = extractInstrument(instrumentObj)
+        // 构建返回结果
+
+        result = dict(`查询结果数量`前10条查询结果`第一条债券详细记录, [size(fullInstrumentData),keyInstrumentData, instrumentDict])
+        return toStdJson(result)
+        
+    } catch(ex) {
+        return "查询失败: " + string(ex)
+    }
+}
+
+// query_curve MCP 工具
+description_query_curve = '
+查询数据库中现有的曲线记录信息。
+
+参数说明：
+- curveWhere: STRING，筛选curve表的WHERE条件，如"curveName = \"CNY_TREASURY_BOND\""或"referenceDate = 2025.08.01"
+
+曲线筛选可用列：
+- referenceDate：参考日期（不用引号）
+- curveName：曲线名称
+- curveType：曲线类型
+
+返回值：
+返回匹配的曲线记录详细信息，包括基本信息和解析后的曲线结构
+
+示例：
+curveWhere = "curveName = \"CNY_TREASURY_BOND\" and referenceDate = 2025.08.01"
+或者：
+curveWhere = "referenceDate = 2025.08.01"
+或者：
+curveWhere = "curveName like \"%TREASURY%\" and referenceDate >= 2025.08.01 limit 5"
+'
+
+def query_curve_wrapper(curveWhere) {
+    try {
+        // 从数据库查询曲线基本信息
+        curveSql = 'select referenceDate, curveName, curveType from loadTable("dfs://ficc_data2", "curve") where ' + curveWhere
+        curveResult = parseExpr(curveSql).eval()
+        
+        if (size(curveResult) == 0) {
+            return "未找到匹配的曲线记录，筛选条件: " + curveWhere
+        }
+        
+        // 获取完整的curve详细数据
+        fullCurveSql = 'select referenceDate, curveName, curveType, marketData from loadTable("dfs://ficc_data2", "curve") where ' + curveWhere
+        fullCurveData = parseExpr(fullCurveSql).eval()
+        
+        keyCurveData = select referenceDate, curveName, curveType from fullCurveData limit 10
+
+        // 仅返回第一条记录的详细信息
+        marketDataObj = fullCurveData.marketData[0]
+        marketDataDict = extractMktData(marketDataObj)
+                
+        result = dict(`查询结果数量`前10条查询结果`第一条曲线详细记录, [size(fullCurveData),keyCurveData, marketDataDict])
+        return toStdJson(result)
+        
+    } catch(ex) {
+        return "查询失败: " + string(ex)
+    }
+}
+
+// 注册MCP工具
+if (`query_instrument in (exec name from listMCPTools())) {
+    updateMCPTool(`query_instrument, query_instrument_wrapper,
+        [`instrumentWhere],
+        ["STRING"],
+        description_query_instrument)
+} else {
+    addMCPTool(`query_instrument, query_instrument_wrapper,
+        [`instrumentWhere],
+        ["STRING"],
+        description_query_instrument)
+}
+
+if (`query_curve in (exec name from listMCPTools())) {
+    updateMCPTool(`query_curve, query_curve_wrapper,
+        [`curveWhere],
+        ["STRING"],
+        description_query_curve)
+} else {
+    addMCPTool(`query_curve, query_curve_wrapper,
+        [`curveWhere],
+        ["STRING"],
+        description_query_curve)
+}
+
+// 发布新工具
+publishMCPTools(`query_instrument`query_curve)
+
+
+// // 更新MCP工具描述
+// description_batch_instrument_pricer = '
+// 使用WHERE条件筛选多个金融工具和市场数据进行批量定价。
+
+// 参数说明：
+// - instrumentWhere: STRING，筛选instrument表的WHERE条件，可以匹配多条记录。可供筛选的列有：instrumentId、instrumentName、assetType、listingDate 和 market。
+// - curveWhere: STRING，筛选curve表的WHERE条件（不包括referenceDate）。可供筛选的列有：referenceDate、curveName 和 curveType。
+// - pricingDate: TEMPORAL，定价日期
+
+// 返回值：
+// 返回批量定价结果，包含每个债券的定价信息
+
+// 示例：
+// instrumentWhere = "assetType = \"Bond\" and market = \"IB\""
+// curveWhere = "curveName = \"CNY_TREASURY_BOND\""
+// pricingDate = "2025.08.18"
+
+// 示例：
+// instrumentWhere = "instrumentId = \"250015.IB\""
+// curveWhere = "curveName = \"CNY_TREASURY_BOND\""
+// pricingDate = "2025.04.01"
+
+// 或者：
+// instrumentWhere = "instrumentId = \"019695.XSHG\""
+// curveWhere = "curveName in [\"CNY_TREASURY_BOND\", \"CNY_CDB_BOND\"]"
+// pricingDate = "2025.08.18"
+// '
+
+// def instrument_pricer_wrapper(instrumentWhere, curveWhere, pricingDate) {
+
+//         // 从数据库获取金融工具
+//         instrumentSql = 'select instrument from loadTable("dfs://ficc_data2", "instrument") where ' + instrumentWhere
+//         instrumentData = parseExpr(instrumentSql).eval()
+        
+//         if (size(instrumentData) == 0) {
+//             return "未找到匹配的债券记录，筛选条件: " + instrumentSql
+//         }
+        
+//         instrument = instrumentData.instrument
+//         // extractInstrument(instrument)[0]
+
+//         // 获取曲线数据
+//         curveSql = 'select * from loadTable("dfs://ficc_data2", "curve") where referenceDate = ' + string(date(pricingDate)) + " and " + curveWhere + " context by curveName limit -1"
+//         curveData = parseExpr(curveSql).eval()
+
+//         if (size(curveData) == 0) {
+//             return "未找到匹配的曲线记录，筛选条件: " + curveSql
+//         }
+
+        
+//         // + " context by curveName limit -1"
+//         if (size(curveData) == 0) {
+//             return "Curve not found with condition: " + curveWhere
+//         }
+
+//         // 提取市场数据向量
+//         mktDataVector = curveData.marketData
+//         // extractMktData(mktDataVector)[0]
+
+//         // 构建市场数据字典
+//         mktData = dict(STRING, ANY)
+//         curveDict = dict(DATE, ANY)
+//         tmpDict = dict(curveData.curveName, mktDataVector)
+//         curveDict[date(pricingDate)] = tmpDict
+//         mktData["Curve"] = curveDict
+        
+//         // 调用instrumentPricer
+//         result = instrumentPricer(instrument, date(pricingDate), mktData)
+
+//         return "批量定价完成，共处理 " + string(size(instrumentData)) + " 只债券：\n" + toStdJson(result)
+
+// }
+
+// // 同时注册原有的 instrument_pricer
+// if (`instrument_pricer in (exec name from listMCPTools())) {
+//     updateMCPTool(`instrument_pricer, instrument_pricer_wrapper,
+//         `instrumentWhere`curveWhere`pricingDate,
+//         ["STRING", "STRING", "TEMPORAL"],
+//         description_instrument_pricer)
+// } else {
+//     addMCPTool(`instrument_pricer, instrument_pricer_wrapper,
+//         `instrumentWhere`curveWhere`pricingDate,
+//         ["STRING", "STRING", "TEMPORAL"],
+//         description_instrument_pricer)
+// }
+
+
+
+
+// bondFuturesPricer MCP 工具
+description_bond_futures_pricer = '
+计算国债期货合约的净现值。
+
+参数说明：
+- bondFutures: STRING，JSON格式的国债期货合约定义，包含以下字段：
+  * productType: STRING，固定填 "Futures"
+  * futuresType: STRING，固定填 "BondFutures"
+  * version: INT，版本号，默认值 0
+  * instrumentId: STRING，期货合约代码，如 "T2509"
+  * nominal: DOUBLE，名义金额，默认值 100.0
+  * maturity: DATE，期货到期日
+  * settlement: DATE，期货交割日
+  * underlying: DICT，标的债券信息，包含以下字段：
+    - productType: STRING，固定填 "Cash"
+    - assetType: STRING，固定填 "Bond"
+    - bondType: STRING，债券类型，如 "FixedRateBond"
+    - version: INT，版本号，默认值 0
+    - instrumentId: STRING，债券代码，如 "220010.IB"
+    - start: DATE，起息日
+    - maturity: DATE，到期日
+    - issuePrice: DOUBLE，发行价格
+    - coupon: DOUBLE，票面利率
+    - frequency: STRING，付息频率，如 "Semiannual", "Annual"
+    - dayCountConvention: STRING，日期计数惯例
+  * nominalCouponRate: DOUBLE，名义票面利率
+
+- pricingDate: TEMPORAL，定价日期
+
+- discountCurve: STRING，JSON格式的折现曲线定义，包含以下字段：
+  * mktDataType: STRING，固定填 "Curve"
+  * curveType: STRING，固定填 "IrYieldCurve"
+  * referenceDate: TEMPORAL，参考日期
+  * currency: STRING，货币，如 "CNY"
+  * dayCountConvention: STRING，日期计数惯例
+  * compounding: STRING，复利类型，如 "Compounded"
+  * interpMethod: STRING，内插方法，如 "Linear"
+  * extrapMethod: STRING，外插方法，如 "Flat"
+  * frequency: STRING，计息频率
+  * dates: DATE[]，数据点的日期
+  * values: DOUBLE[]，数据点的值
+
+返回值：DOUBLE，国债期货合约的净现值
+
+示例：
+
+bondFutures = "{\"productType\": \"Futures\", \"futuresType\": \"BondFutures\", \"version\": 0, \"instrumentId\": \"T2509\", \"nominal\": 100.0, \"maturity\": \"2025.09.12\", \"settlement\": \"2025.09.16\", \"underlying\": {\"productType\": \"Cash\", \"assetType\": \"Bond\", \"bondType\": \"FixedRateBond\", \"version\": 0, \"instrumentId\": \"220010.IB\", \"start\": \"2022.05.15\", \"maturity\": \"2032.05.15\", \"issuePrice\": 100.0, \"coupon\": 0.0276, \"frequency\": \"Semiannual\", \"dayCountConvention\": \"ActualActualISDA\"}, \"nominalCouponRate\": 0.03}"
+pricingDate = "2025.06.10"
+discountCurve = "{\"mktDataType\": \"Curve\", \"curveType\": \"IrYieldCurve\", \"referenceDate\": \"2025.06.10\", \"currency\": \"CNY\", \"dayCountConvention\": \"ActualActualISDA\", \"compounding\": \"Compounded\", \"interpMethod\": \"Linear\", \"extrapMethod\": \"Flat\", \"frequency\": \"Semiannual\", \"dates\":[\"2025.09.05\", \"2025.12.05\", \"2026.03.05\", \"2027.03.05\", \"2028.03.05\", \"2030.03.05\", \"2035.03.05\", \"2040.03.05\", \"2045.03.05\", \"2055.03.05\", \"2075.03.05\"], \"values\":[0.015347, 0.014958, 0.014447, 0.013955, 0.015029, 0.015561, 0.017156, 0.018652, 0.020329, 0.018955, 0.021059]}"
+'
+
+def bond_futures_pricer_wrapper(bondFutures, pricingDate, discountCurve) {
+    // 转换参数
+    instrument = parseInstrument(fromStdJson(bondFutures))
+    pricingDateObj = date(pricingDate)
+    discountCurveObj = parseMktData(fromStdJson(discountCurve))
+    
+    // 调用原始函数
+    npv = bondFuturesPricer(instrument, pricingDateObj, discountCurveObj)
+    return npv
+}
+
+if (`bond_futures_pricer in (exec name from listMCPTools())) {
+    updateMCPTool(`bond_futures_pricer, bond_futures_pricer_wrapper,
+        `bondFutures`pricingDate`discountCurve,
+        ["STRING", "TEMPORAL", "STRING"],
+        description_bond_futures_pricer)
+} else {
+    addMCPTool(`bond_futures_pricer, bond_futures_pricer_wrapper,
+        `bondFutures`pricingDate`discountCurve,
+        ["STRING", "TEMPORAL", "STRING"],
+        description_bond_futures_pricer)
+}
+
+publishMCPTools(`bond_futures_pricer)
+
+
+// irDepositPricer MCP 工具
+description_ir_deposit_pricer = '
+计算存款（Certificate of Deposit, CD）的定价。
+
+参数说明：
+- deposit: STRING，JSON格式的存款定义，包含以下字段：
+  * productType: STRING，固定填 "Cash"
+  * assetType: STRING，固定填 "Deposit"
+  * version: INT，版本号，默认值 0
+  * start: DATE，存款起始日期
+  * maturity: DATE，存款到期日期
+  * rate: DOUBLE，存款利率（小数形式，如0.02表示2%）
+  * dayCountConvention: STRING，日期计数惯例，可选值：
+    - "Actual360": 实际/360
+    - "Actual365": 实际/365
+    - "ActualActualISMA": 实际/实际，遵循 ISMA 规则
+    - "ActualActualISDA": 实际/实际，遵循 ISDA 规则
+    - "Thirty360US": 美国 (NASD) 30/360
+    - "Thirty360EU": 欧洲 30/360
+  * notional: ARRAY，名义本金，格式为 [货币, 金额]，如 ["CNY", 1000000]
+  * payReceive: STRING，收付方向，可选值：
+    - "Pay": 支付
+    - "Receive": 接收
+
+- pricingDate: TEMPORAL，定价日期
+
+- discountCurve: STRING，JSON格式的贴现曲线定义，包含以下字段：
+  * mktDataType: STRING，固定填 "Curve"
+  * curveType: STRING，固定填 "IrYieldCurve"
+  * version: INT，版本号，默认值 0
+  * referenceDate: TEMPORAL，参考日期（应与定价日期相同）
+  * currency: STRING，货币，如 "CNY", "USD", "EUR" 等
+  * dayCountConvention: STRING，日期计数惯例
+  * compounding: STRING，复利类型，可选值：
+    - "Simple": 单利
+    - "Compounded": 离散复利
+    - "Continuous": 连续复利
+  * interpMethod: STRING，内插方法，可选值：
+    - "Linear": 线性内插
+    - "CubicSpline": 三次样条内插
+    - "CubicHermiteSpline": 三次Hermite样条内插
+  * extrapMethod: STRING，外插方法，可选值：
+    - "Flat": 平坦外插
+    - "Linear": 线性外插
+  * frequency: STRING，计息频率，如 "Annual", "Semiannual", "Quarterly", "Monthly"
+  * dates: DATE[]，曲线节点日期
+  * values: DOUBLE[]，曲线节点利率值
+
+返回值：DOUBLE，存款的净现值
+
+示例：
+
+示例一：标准存款定价
+deposit = "{\"productType\": \"Cash\", \"assetType\": \"Deposit\", \"version\": 0, \"start\": \"2025.05.15\", \"maturity\": \"2025.08.15\", \"rate\": 0.02, \"dayCountConvention\": \"Actual360\", \"notional\": [\"CNY\", 1000000], \"payReceive\": \"Receive\"}"
+pricingDate = "2025.06.10"
+discountCurve = "{\"mktDataType\": \"Curve\", \"curveType\": \"IrYieldCurve\", \"version\": 0, \"referenceDate\": \"2025.06.10\", \"currency\": \"CNY\", \"dayCountConvention\": \"Actual365\", \"compounding\": \"Continuous\", \"interpMethod\": \"Linear\", \"extrapMethod\": \"Flat\", \"frequency\": \"Annual\", \"dates\": [\"2025.07.25\", \"2030.09.25\"], \"values\": [0.015, 0.015]}"
+
+示例二：不同计息惯例的存款定价
+deposit = "{\"productType\": \"Cash\", \"assetType\": \"Deposit\", \"version\": 0, \"start\": \"2025.03.01\", \"maturity\": \"2025.09.01\", \"rate\": 0.025, \"dayCountConvention\": \"Actual365\", \"notional\": [\"CNY\", 500000], \"payReceive\": \"Receive\"}"
+pricingDate = "2025.04.15"
+discountCurve = "{\"mktDataType\": \"Curve\", \"curveType\": \"IrYieldCurve\", \"version\": 0, \"referenceDate\": \"2025.04.15\", \"currency\": \"CNY\", \"dayCountConvention\": \"Actual365\", \"compounding\": \"Compounded\", \"interpMethod\": \"Linear\", \"extrapMethod\": \"Flat\", \"frequency\": \"Annual\", \"dates\": [\"2025.05.15\", \"2025.07.15\", \"2025.10.15\", \"2026.04.15\"], \"values\": [0.018, 0.019, 0.020, 0.021]}"
+
+示例三：支付方向的存款定价
+deposit = "{\"productType\": \"Cash\", \"assetType\": \"Deposit\", \"version\": 0, \"start\": \"2025.01.10\", \"maturity\": \"2025.07.10\", \"rate\": 0.03, \"dayCountConvention\": \"Thirty360US\", \"notional\": [\"USD\", 100000], \"payReceive\": \"Pay\"}"
+pricingDate = "2025.02.20"
+discountCurve = "{\"mktDataType\": \"Curve\", \"curveType\": \"IrYieldCurve\", \"version\": 0, \"referenceDate\": \"2025.02.20\", \"currency\": \"USD\", \"dayCountConvention\": \"Actual360\", \"compounding\": \"Simple\", \"interpMethod\": \"Linear\", \"extrapMethod\": \"Flat\", \"frequency\": \"Annual\", \"dates\": [\"2025.03.20\", \"2025.08.20\", \"2026.02.20\"], \"values\": [0.045, 0.046, 0.047]}"
+'
+
+def ir_deposit_pricer_wrapper(deposit, pricingDate, discountCurve) {
+    // 解析存款工具
+    depositObj = parseInstrument(fromStdJson(deposit))
+    
+    // 转换定价日期
+    pricingDateObj = date(pricingDate)
+    
+    // 解析贴现曲线
+    discountCurveObj = parseMktData(fromStdJson(discountCurve))
+    
+    // 调用原始函数
+    result = irDepositPricer(depositObj, pricingDateObj, discountCurveObj)
+    
+    return result
+}
+
+if (`ir_deposit_pricer in (exec name from listMCPTools())) {
+    updateMCPTool(`ir_deposit_pricer, ir_deposit_pricer_wrapper,
+        `deposit`pricingDate`discountCurve,
+        ["STRING", "TEMPORAL", "STRING"],
+        description_ir_deposit_pricer)
+} else {
+    addMCPTool(`ir_deposit_pricer, ir_deposit_pricer_wrapper,
+        `deposit`pricingDate`discountCurve,
+        ["STRING", "TEMPORAL", "STRING"],
+        description_ir_deposit_pricer)
+}
+
+publishMCPTools(`ir_deposit_pricer)
+
+
+// irFixedFloatingSwapPricer MCP 工具
+description_ir_swap_pricer = '
+计算固定利率互换（IR Fixed-Floating Swap, IRS）的定价。
+
+参数说明：
+- instrument: STRING，JSON 格式的固定利率互换定义，包含以下字段：
+  * productType: STRING，固定填 "Swap"
+  * swapType: STRING，固定填 "IrSwap"
+  * irSwapType: STRING，固定填 "IrFixedFloatingSwap"
+  * version: INT，版本号，默认值 0
+  * start: DATE，互换开始日期
+  * maturity: DATE，互换到期日期
+  * frequency: STRING，付息频率，可选值："Annual", "Semiannual", "Quarterly", "Monthly"
+  * fixedRate: DOUBLE，固定利率，如 0.022125 表示 2.2125%
+  * calendar: STRING，交易日历，如 "CFET"
+  * fixedDayCountConvention: STRING，固定端日期计数惯例，如 "Actual365"
+  * floatingDayCountConvention: STRING，浮动端日期计数惯例，如 "Actual365"
+  * payReceive: STRING，收付方向，可选值："Pay", "Receive"
+  * iborIndex: STRING，浮动端参考利率指数，如 "FR_007"
+  * spread: DOUBLE，浮动端利差，如 0.0000
+  * notional: ARRAY，名义本金，格式为 [货币, 金额]，如 ["CNY", 100000000]
+
+- pricingDate: TEMPORAL，定价日期
+
+- discountCurve: STRING，JSON 格式的贴现曲线定义，用于计算折现因子的即期曲线
+
+- forwardCurve: STRING，JSON 格式的远期曲线定义，用于计算远期利率的即期曲线
+
+- assetPriceCurve: STRING，JSON 格式的资产价格曲线定义，包含浮动端参考利率的历史数据，包含以下字段：
+  * mktDataType: STRING，固定填 "Curve"
+  * curveType: STRING，固定填 "AssetPriceCurve"
+  * version: INT，版本号，默认值 0
+  * referenceDate: DATE，参考日期
+  * currency: STRING，货币
+  * dates: DATE[]，历史数据日期
+  * values: DOUBLE[]，历史利率数据
+
+- setting: STRING，JSON 格式的计算设置（可选，传空字符串 "" 表示仅计算NPV），包含以下键：
+  * calcCashFlow: BOOL，是否计算现金流，默认 false
+
+返回值：
+- 如果未传入 setting 或传入空字符串，则返回互换的净现值（NPV）
+- 如果传入 setting 并设置 calcCashFlow 为 true，则返回包含NPV、固定端现金流和浮动端现金流的字典
+
+示例：
+
+示例一：仅计算净现值
+instrument = "{\"productType\": \"Swap\", \"swapType\": \"IrSwap\", \"irSwapType\": \"IrFixedFloatingSwap\", \"version\": 0, \"start\": \"2021.05.17\", \"maturity\": \"2023.05.17\", \"frequency\": \"Quarterly\", \"fixedRate\": 0.022125, \"calendar\": \"CFET\", \"fixedDayCountConvention\": \"Actual365\", \"floatingDayCountConvention\": \"Actual365\", \"payReceive\": \"Pay\", \"iborIndex\": \"FR_007\", \"spread\": 0.0000, \"notional\": [\"CNY\", 100000000]}"
+pricingDate = "2022.06.10"
+discountCurve = "{\"mktDataType\": \"Curve\", \"curveType\": \"IrYieldCurve\", \"version\": 0, \"referenceDate\": \"2022.06.10\", \"currency\": \"CNY\", \"dayCountConvention\": \"Actual365\", \"compounding\": \"Continuous\", \"interpMethod\": \"CubicHermiteSpline\", \"extrapMethod\": \"Flat\", \"frequency\": \"Quarterly\", \"dates\": [\"2022.06.13\", \"2022.06.17\", \"2022.06.24\", \"2022.07.13\", \"2022.09.13\", \"2022.12.13\", \"2023.03.13\", \"2023.06.13\", \"2024.06.13\", \"2025.06.13\", \"2026.06.13\"], \"values\": [0.0144, 0.0162, 0.0160, 0.017479, 0.018598, 0.019764, 0.020526, 0.020992, 0.022537, 0.024054, 0.025581]}"
+forwardCurve = "{\"mktDataType\": \"Curve\", \"curveType\": \"IrYieldCurve\", \"version\": 0, \"referenceDate\": \"2022.06.10\", \"currency\": \"CNY\", \"dayCountConvention\": \"Actual365\", \"compounding\": \"Continuous\", \"interpMethod\": \"CubicHermiteSpline\", \"extrapMethod\": \"Flat\", \"frequency\": \"Quarterly\", \"dates\": [\"2022.06.13\", \"2022.06.17\", \"2022.06.24\", \"2022.07.13\", \"2022.09.13\", \"2022.12.13\", \"2023.03.13\", \"2023.06.13\", \"2024.06.13\", \"2025.06.13\", \"2026.06.13\"], \"values\": [0.0144, 0.0162, 0.0160, 0.017479, 0.018598, 0.019764, 0.020526, 0.020992, 0.022537, 0.024054, 0.025581]}"
+assetPriceCurve = "{\"mktDataType\": \"Curve\", \"curveType\": \"AssetPriceCurve\", \"version\": 0, \"referenceDate\": \"2022.05.15\", \"currency\": \"CNY\", \"dates\": [\"2022.05.16\", \"2022.05.23\", \"2022.05.30\", \"2022.06.06\"], \"values\": [0.0165, 0.016, 0.0185, 0.0168]}"
+setting = ""
+
+示例二：计算NPV和现金流
+instrument = "{\"productType\": \"Swap\", \"swapType\": \"IrSwap\", \"irSwapType\": \"IrFixedFloatingSwap\", \"version\": 0, \"start\": \"2021.05.17\", \"maturity\": \"2023.05.17\", \"frequency\": \"Quarterly\", \"fixedRate\": 0.022125, \"calendar\": \"CFET\", \"fixedDayCountConvention\": \"Actual365\", \"floatingDayCountConvention\": \"Actual365\", \"payReceive\": \"Pay\", \"iborIndex\": \"FR_007\", \"spread\": 0.0000, \"notional\": [\"CNY\", 100000000]}"
+pricingDate = "2022.06.10"
+discountCurve = "{\"mktDataType\": \"Curve\", \"curveType\": \"IrYieldCurve\", \"version\": 0, \"referenceDate\": \"2022.06.10\", \"currency\": \"CNY\", \"dayCountConvention\": \"Actual365\", \"compounding\": \"Continuous\", \"interpMethod\": \"CubicHermiteSpline\", \"extrapMethod\": \"Flat\", \"frequency\": \"Quarterly\", \"dates\": [\"2022.06.13\", \"2022.06.17\", \"2022.06.24\", \"2022.07.13\", \"2022.09.13\", \"2022.12.13\", \"2023.03.13\", \"2023.06.13\", \"2024.06.13\", \"2025.06.13\", \"2026.06.13\"], \"values\": [0.0144, 0.0162, 0.0160, 0.017479, 0.018598, 0.019764, 0.020526, 0.020992, 0.022537, 0.024054, 0.025581]}"
+forwardCurve = "{\"mktDataType\": \"Curve\", \"curveType\": \"IrYieldCurve\", \"version\": 0, \"referenceDate\": \"2022.06.10\", \"currency\": \"CNY\", \"dayCountConvention\": \"Actual365\", \"compounding\": \"Continuous\", \"interpMethod\": \"CubicHermiteSpline\", \"extrapMethod\": \"Flat\", \"frequency\": \"Quarterly\", \"dates\": [\"2022.06.13\", \"2022.06.17\", \"2022.06.24\", \"2022.07.13\", \"2022.09.13\", \"2022.12.13\", \"2023.03.13\", \"2023.06.13\", \"2024.06.13\", \"2025.06.13\", \"2026.06.13\"], \"values\": [0.0144, 0.0162, 0.0160, 0.017479, 0.018598, 0.019764, 0.020526, 0.020992, 0.022537, 0.024054, 0.025581]}"
+assetPriceCurve = "{\"mktDataType\": \"Curve\", \"curveType\": \"AssetPriceCurve\", \"version\": 0, \"referenceDate\": \"2022.05.15\", \"currency\": \"CNY\", \"dates\": [\"2022.05.16\", \"2022.05.23\", \"2022.05.30\", \"2022.06.06\"], \"values\": [0.0165, 0.016, 0.0185, 0.0168]}"
+setting = "{\"calcCashFlow\": true}"
+'
+
+def ir_fixed_floating_swap_pricer_wrapper(instrument, pricingDate, discountCurve, forwardCurve, assetPriceCurve, setting) {
+    // 解析工具
+    inst = parseInstrument(fromStdJson(instrument))
+    
+    // 转换日期参数
+    pricingDateObj = date(pricingDate)
+    
+    // 解析曲线
+    discountCurveObj = parseMktData(fromStdJson(discountCurve))
+    forwardCurveObj = parseMktData(fromStdJson(forwardCurve))
+    assetPriceCurveObj = parseMktData(fromStdJson(assetPriceCurve))
+    
+    // 处理 setting 参数
+    if (setting == "" || isNull(setting)) {
+        return irFixedFloatingSwapPricer(inst, pricingDateObj, discountCurveObj, forwardCurveObj, assetPriceCurveObj)
+    } else {
+        settingObj = fromStdJson(setting)
+        return irFixedFloatingSwapPricer(inst, pricingDateObj, discountCurveObj, forwardCurveObj, assetPriceCurveObj, settingObj)
+    }
+}
+
+if (`ir_fixed_floating_swap_pricer in (exec name from listMCPTools())) {
+    updateMCPTool(`ir_fixed_floating_swap_pricer, ir_fixed_floating_swap_pricer_wrapper,
+        `instrument`pricingDate`discountCurve`forwardCurve`assetPriceCurve`setting,
+        ["STRING", "TEMPORAL", "STRING", "STRING", "STRING", "STRING"],
+        description_ir_swap_pricer)
+} else {
+    addMCPTool(`ir_fixed_floating_swap_pricer, ir_fixed_floating_swap_pricer_wrapper,
+        `instrument`pricingDate`discountCurve`forwardCurve`assetPriceCurve`setting,
+        ["STRING", "TEMPORAL", "STRING", "STRING", "STRING", "STRING"],
+        description_ir_swap_pricer)
+}
+
+publishMCPTools(`ir_fixed_floating_swap_pricer)
+
+
+// fxForwardPricer MCP 工具
+description_fx_forward_pricer = '
+基于给定的即期汇率、本币与外币的贴现曲线，以及定价日期，计算外汇远期合约的净现值（NPV）。
+
+参数说明：
+- instrument: STRING，JSON格式的外汇远期定义，包含以下字段：
+  * productType: STRING，固定填 "Forward"
+  * forwardType: STRING，固定填 "FxForward"
+  * version: INT，版本号，默认值 0
+  * expiry: DATE，到期日
+  * delivery: DATE，交割日
+  * currencyPair: STRING，货币对，如 "USDCNY"
+  * direction: STRING，交易方向，可选值："Buy"（买入）、"Sell"（卖出）
+  * notional: ARRAY，名义本金，格式为 [货币, 金额]，如 ["USD", 1000000]
+  * strike: DOUBLE，执行汇率
+
+- pricingDate: TEMPORAL，定价日期
+
+- spot: DOUBLE，即期汇率
+
+- domesticCurve: STRING，JSON格式的本币贴现曲线定义，包含以下字段：
+  * mktDataType: STRING，固定填 "Curve"
+  * curveType: STRING，固定填 "IrYieldCurve"
+  * referenceDate: TEMPORAL，参考日期
+  * currency: STRING，本币货币代码，如 "CNY"
+  * dayCountConvention: STRING，日期计数惯例，如 "Actual365"
+  * compounding: STRING，复利类型，如 "Continuous"
+  * interpMethod: STRING，内插方法，如 "Linear"
+  * extrapMethod: STRING，外插方法，如 "Flat"
+  * frequency: STRING，计息频率，如 "Annual"
+  * dates: DATE[]，曲线节点日期
+  * values: DOUBLE[]，曲线节点利率值
+
+- foreignCurve: STRING，JSON格式的外币贴现曲线定义，结构同domesticCurve，但currency为外币代码，如 "USD"
+
+返回值：外汇远期合约的净现值（NPV）
+
+示例：
+
+pricingDate = "2025.08.18"
+instrument = "{\"productType\": \"Forward\", \"forwardType\": \"FxForward\", \"version\": 0, \"expiry\": \"2025.12.16\", \"delivery\": \"2025.12.18\", \"currencyPair\": \"USDCNY\", \"direction\": \"Buy\", \"notional\": [\"USD\", 1000000], \"strike\": 7.1}"
+spot = 7.1627
+domesticCurve = "{\"mktDataType\": \"Curve\", \"curveType\": \"IrYieldCurve\", \"referenceDate\": \"2025.08.18\", \"currency\": \"CNY\", \"dayCountConvention\": \"Actual365\", \"compounding\": \"Continuous\", \"interpMethod\": \"Linear\", \"extrapMethod\": \"Flat\", \"frequency\": \"Annual\", \"dates\": [\"2025.08.21\", \"2025.08.27\", \"2025.09.03\", \"2025.09.10\", \"2025.09.22\", \"2025.10.20\", \"2025.11.20\", \"2026.02.24\", \"2026.05.20\", \"2026.08.20\", \"2027.02.22\", \"2027.08.20\", \"2028.08.21\"], \"values\": [0.015113, 0.015402, 0.015660, 0.015574, 0.015556, 0.015655, 0.015703, 0.015934, 0.016040, 0.016020, 0.015928, 0.015842, 0.016068]}"
+foreignCurve = "{\"mktDataType\": \"Curve\", \"curveType\": \"IrYieldCurve\", \"referenceDate\": \"2025.08.18\", \"currency\": \"USD\", \"dayCountConvention\": \"Actual365\", \"compounding\": \"Continuous\", \"interpMethod\": \"Linear\", \"extrapMethod\": \"Flat\", \"frequency\": \"Annual\", \"dates\": [\"2025.08.21\", \"2025.08.27\", \"2025.09.03\", \"2025.09.10\", \"2025.09.22\", \"2025.10.20\", \"2025.11.20\", \"2026.02.24\", \"2026.05.20\", \"2026.08.20\", \"2027.02.22\", \"2027.08.20\", \"2028.08.21\"], \"values\": [0.043345, 0.043801, 0.043119, 0.043065, 0.042922, 0.042196, 0.041599, 0.040443, 0.040244, 0.039698, 0.037740, 0.036289, 0.035003]}"
+'
+
+def fx_forward_pricer_wrapper(instrument, pricingDate, spot, domesticCurve, foreignCurve) {
+    // 转换参数
+    pricingDateObj = date(pricingDate)
+    instrumentObj = parseInstrument(fromStdJson(instrument))
+    domesticCurveObj = parseMktData(fromStdJson(domesticCurve))
+    foreignCurveObj = parseMktData(fromStdJson(foreignCurve))
+    
+    // 调用原始函数
+    result = fxForwardPricer(instrumentObj, pricingDateObj, spot, domesticCurveObj, foreignCurveObj)
+    
+    return result
+}
+
+if (`fx_forward_pricer in (exec name from listMCPTools())) {
+    updateMCPTool(`fx_forward_pricer, fx_forward_pricer_wrapper,
+        `instrument`pricingDate`spot`domesticCurve`foreignCurve,
+        ["STRING", "TEMPORAL", "DOUBLE", "STRING", "STRING"],
+        description_fx_forward_pricer)
+} else {
+    addMCPTool(`fx_forward_pricer, fx_forward_pricer_wrapper,
+        `instrument`pricingDate`spot`domesticCurve`foreignCurve,
+        ["STRING", "TEMPORAL", "DOUBLE", "STRING", "STRING"],
+        description_fx_forward_pricer)
+}
+
+publishMCPTools(`fx_forward_pricer)
+
+
+// fxSwapPricer MCP 工具
+description_fx_swap_pricer = '
+计算外汇掉期的净现值。
+
+参数说明：
+- instrument: STRING，JSON格式的外汇掉期定义，包含以下字段：
+  * productType: STRING，固定填 "Swap"
+  * swapType: STRING，固定填 "FxSwap"
+  * version: INT，版本号，默认值 0
+  * currencyPair: STRING，货币对，如 "EURUSD"
+  * direction: STRING，交易方向，可选值："Buy", "Sell"
+  * notional: ARRAY，名义本金，格式为 [货币, 金额]，如 ["EUR", 1.0]
+  * nearStrike: DOUBLE，近端执行汇率
+  * nearExpiry: DATE，近端到期日
+  * nearDelivery: DATE，近端交割日
+  * farStrike: DOUBLE，远端执行汇率
+  * farExpiry: DATE，远端到期日
+  * farDelivery: DATE，远端交割日
+
+- pricingDate: TEMPORAL，定价日期
+
+- spot: DOUBLE，汇率即期价格
+
+- domesticCurve: STRING，JSON格式的本币折现曲线定义，包含以下字段：
+  * mktDataType: STRING，固定填 "Curve"
+  * curveType: STRING，固定填 "IrYieldCurve"
+  * referenceDate: TEMPORAL，参考日期
+  * currency: STRING，本币货币代码，如 "USD"
+  * dayCountConvention: STRING，日期计数惯例，如 "Actual365"
+  * compounding: STRING，复利类型，如 "Continuous"
+  * interpMethod: STRING，内插方法，如 "Linear"
+  * extrapMethod: STRING，外插方法，如 "Flat"
+  * dates: TEMPORAL[]，曲线节点日期
+  * values: DOUBLE[]，曲线节点利率值
+
+- foreignCurve: STRING，JSON格式的外币折现曲线定义，结构同domesticCurve，但currency为外币代码，如 "EUR"
+
+返回值：外汇掉期的净现值
+
+示例：
+
+pricingDate = "2019.07.08"
+spot = 1.121440
+nearStrike = 1.345728
+farStrike = 1.457872
+instrument = "{\"productType\": \"Swap\", \"swapType\": \"FxSwap\", \"version\": 0, \"currencyPair\": \"EURUSD\", \"direction\": \"Buy\", \"notional\": [\"EUR\", 1.0], \"nearStrike\": 1.345728, \"nearExpiry\": \"2019.09.06\", \"nearDelivery\": \"2019.09.08\", \"farStrike\": 1.457872, \"farExpiry\": \"2020.01.04\", \"farDelivery\": \"2020.01.06\"}"
+domesticCurve = "{\"mktDataType\": \"Curve\", \"curveType\": \"IrYieldCurve\", \"referenceDate\": \"2019.07.08\", \"currency\": \"USD\", \"dayCountConvention\": \"Actual365\", \"compounding\": \"Continuous\", \"interpMethod\": \"Linear\", \"extrapMethod\": \"Flat\", \"dates\":[\"2019.07.11\",\"2019.07.17\",\"2019.07.24\",\"2019.07.31\",\"2019.08.12\",\"2019.09.10\",\"2019.10.10\",\"2019.11.12\",\"2019.12.10\",\"2020.01.10\",\"2020.07.10\",\"2021.07.12\",\"2022.07.11\",\"2023.07.10\",\"2024.07.10\",\"2026.07.10\",\"2029.07.10\",\"2031.07.10\",\"2034.07.10\",\"2039.07.11\",\"2044.07.11\",\"2049.07.12\"], \"values\":[0.024433786134411,0.024225126571919,0.024203010643806,0.024252576792355,0.023348051909759,0.022593559840125,0.021891811294372,0.021291616688325,0.020886012824316,0.020409262542373,0.019005159354464,0.017073428214003,0.016410798532383,0.016203233730226,0.016255011191322,0.016851466518667,0.017957189552101,0.018610726199485,0.019340305980536,0.020001191737437,0.020201594379878,0.020216617011401]}"
+foreignCurve = "{\"mktDataType\": \"Curve\", \"curveType\": \"IrYieldCurve\", \"referenceDate\": \"2019.07.08\", \"currency\": \"EUR\", \"dayCountConvention\": \"Actual365\", \"compounding\": \"Continuous\", \"interpMethod\": \"Linear\", \"extrapMethod\": \"Flat\", \"dates\":[\"2019.10.10\",\"2020.01.10\",\"2020.04.14\",\"2020.07.10\",\"2021.07.12\",\"2022.07.11\",\"2023.07.10\",\"2024.07.10\",\"2025.07.10\",\"2026.07.10\",\"2027.07.12\",\"2028.07.10\",\"2029.07.10\",\"2031.07.10\",\"2034.07.10\",\"2039.07.11\",\"2049.07.12\"], \"values\":[-0.007345102338368,-0.008654649379004,-0.008422501629097,-0.008738403997866,-0.008889601805667,-0.008605342810131,-0.00821441486039,-0.007748217572754,-0.00713503972541,-0.006488486697206,-0.005707543758268,-0.004938425925559,-0.004163226326896,-0.002690857963478,-0.000768483114767,0.001548680736784,0.003178263207137]}"
+'
+
+def fx_swap_pricer_wrapper(instrument, pricingDate, spot, domesticCurve, foreignCurve) {
+    // 转换参数
+    ins = parseInstrument(fromStdJson(instrument))
+    pricingDateObj = date(pricingDate)
+    domesticCurveObj = parseMktData(fromStdJson(domesticCurve))
+    foreignCurveObj = parseMktData(fromStdJson(foreignCurve))
+    
+    // 调用原始函数
+    result = fxSwapPricer(ins, pricingDateObj, spot, domesticCurveObj, foreignCurveObj)
+    
+    return result
+}
+
+if (`fx_swap_pricer in (exec name from listMCPTools())) {
+    updateMCPTool(`fx_swap_pricer, fx_swap_pricer_wrapper,
+        `instrument`pricingDate`spot`domesticCurve`foreignCurve,
+        ["STRING", "TEMPORAL", "DOUBLE", "STRING", "STRING"],
+        description_fx_swap_pricer)
+} else {
+    addMCPTool(`fx_swap_pricer, fx_swap_pricer_wrapper,
+        `instrument`pricingDate`spot`domesticCurve`foreignCurve,
+        ["STRING", "TEMPORAL", "DOUBLE", "STRING", "STRING"],
+        description_fx_swap_pricer)
+}
+
+publishMCPTools(`fx_swap_pricer)
+
+
+
+// fxEuropeanOptionPricer MCP 工具（带波动率曲面构建）
+description_fx_european_option_pricer = '
+对外汇欧式期权进行定价，返回期权的净现值（NPV）。该工具会在内部构建所需的波动率曲面。
+
+参数说明：
+- instrument: STRING，JSON格式的外汇欧式期权定义
+- pricingDate: TEMPORAL，定价日期
+- spot: DOUBLE，标的汇率的即期价格
+- domesticCurve: STRING，JSON格式的本币折现曲线定义
+- foreignCurve: STRING，JSON格式的外币折现曲线定义
+- currencyPair: STRING，货币对，如 "USDCNY"
+- quoteNames: STRING[]，波动率报价名称，如 ["ATM", "D25_RR", "D25_BF", "D10_RR", "D10_BF"]
+- quoteTerms: STRING[]，波动率报价期限，如 ["1d", "1w", "2w", "3w", "1M", "2M", "3M", "6M", "9M", "1y", "18M", "2y", "3y"]
+- quotes: DOUBLE[]，波动率报价数据（按行优先排列）
+
+返回值：期权的净现值（NPV）
+
+示例：
+
+// instrument 参数
+instrument = "{\"productType\": \"Option\", \"optionType\": \"EuropeanOption\", \"assetType\": \"FxEuropeanOption\", \"version\": 0, \"notional\": [\"USD\", 1000000], \"strike\": 7.2, \"maturity\": \"2025.10.28\", \"payoffType\": \"Call\", \"dayCountConvention\": \"Actual365\", \"underlying\": \"USDCNY\"}"
+
+// pricingDate 参数
+pricingDate = "2025.08.18"
+
+// spot 参数
+spot = 7.1627
+
+// domesticCurve 参数
+domesticCurve = "{\"mktDataType\": \"Curve\", \"curveType\": \"IrYieldCurve\", \"referenceDate\": \"2025.08.18\", \"currency\": \"CNY\", \"dayCountConvention\": \"Actual365\", \"compounding\": \"Continuous\", \"interpMethod\": \"Linear\", \"extrapMethod\": \"Flat\", \"frequency\": \"Annual\", \"dates\": [\"2025.08.21\", \"2025.08.27\", \"2025.09.03\", \"2025.09.10\", \"2025.09.22\", \"2025.10.20\", \"2025.11.20\", \"2026.02.24\", \"2026.05.20\", \"2026.08.20\", \"2027.02.22\", \"2027.08.20\", \"2028.08.21\"], \"values\": [0.015113, 0.015402, 0.015660, 0.015574, 0.015556, 0.015655, 0.015703, 0.015934, 0.016040, 0.016020, 0.015928, 0.015842, 0.016068]}"
+
+// foreignCurve 参数
+foreignCurve = "{\"mktDataType\": \"Curve\", \"curveType\": \"IrYieldCurve\", \"referenceDate\": \"2025.08.18\", \"currency\": \"USD\", \"dayCountConvention\": \"Actual365\", \"compounding\": \"Continuous\", \"interpMethod\": \"Linear\", \"extrapMethod\": \"Flat\", \"frequency\": \"Annual\", \"dates\": [\"2025.08.21\", \"2025.08.27\", \"2025.09.03\", \"2025.09.10\", \"2025.09.22\", \"2025.10.20\", \"2025.11.20\", \"2026.02.24\", \"2026.05.20\", \"2026.08.20\", \"2027.02.22\", \"2027.08.20\", \"2028.08.21\"], \"values\": [0.043345, 0.043801, 0.043119, 0.043065, 0.042922, 0.042196, 0.041599, 0.040443, 0.040244, 0.039698, 0.037740, 0.036289, 0.035003]}"
+
+// currencyPair 参数
+currencyPair = "USDCNY"
+
+// quoteNames 参数
+quoteNames = ["ATM", "D25_RR", "D25_BF", "D10_RR", "D10_BF"]
+
+// quoteTerms 参数
+quoteTerms = ["1d", "1w", "2w", "3w", "1M", "2M", "3M", "6M", "9M", "1y", "18M", "2y", "3y"]
+
+// quotes 参数
+quotes = [0.030000, -0.007500, 0.003500, -0.010000, 0.005500, 0.020833, -0.004500, 0.002000, -0.006000, 0.003800, 0.022000, -0.003500, 0.002000, -0.004500, 0.004100, 0.022350, -0.003500, 0.002000, -0.004500, 0.004150, 0.024178, -0.003000, 0.002200, -0.004750, 0.005500, 0.027484, -0.002650, 0.002220, -0.004000, 0.005650, 0.030479, -0.002500, 0.002400, -0.003500, 0.005750, 0.035752, -0.000500, 0.002750, 0.000000, 0.006950, 0.038108, 0.001000, 0.002800, 0.003000, 0.007550, 0.039492, 0.002250, 0.002950, 0.005000, 0.007550, 0.040500, 0.004000, 0.003100, 0.007000, 0.007850, 0.041750, 0.005250, 0.003350, 0.008000, 0.008400, 0.044750, 0.006250, 0.003400, 0.009000, 0.008550]
+'
+
+def fx_european_option_pricer_wrapper(instrument, pricingDate, spot, domesticCurve, foreignCurve, currencyPair, quoteNames, quoteTerms, quotes) {
+    // 转换参数
+    refDate = date(pricingDate)
+    instrumentObj = parseInstrument(fromStdJson(instrument))
+    domesticCurveObj = parseMktData(fromStdJson(domesticCurve))
+    foreignCurveObj = parseMktData(fromStdJson(foreignCurve))
+    
+    // 将quotes转换为矩阵格式
+    quotesMatrix = reshape(quotes, size(quoteTerms):size(quoteNames))
+    
+    // 构建波动率曲面
+    volSurf = fxVolatilitySurfaceBuilder(refDate, currencyPair, quoteNames, quoteTerms, quotesMatrix, spot, domesticCurveObj, foreignCurveObj)
+    
+    // 调用原始函数
+    result = fxEuropeanOptionPricer(instrumentObj, refDate, spot, domesticCurveObj, foreignCurveObj, volSurf)
+    
+    return result
+}
+
+if (`fx_european_option_pricer in (exec name from listMCPTools())) {
+    updateMCPTool(`fx_european_option_pricer, fx_european_option_pricer_wrapper,
+        `instrument`pricingDate`spot`domesticCurve`foreignCurve`currencyPair`quoteNames`quoteTerms`quotes,
+        ["STRING", "TEMPORAL", "DOUBLE", "STRING", "STRING", "STRING", "STRING[]", "STRING[]", "DOUBLE[]"],
+        description_fx_european_option_pricer)
+} else {
+    addMCPTool(`fx_european_option_pricer, fx_european_option_pricer_wrapper,
+        `instrument`pricingDate`spot`domesticCurve`foreignCurve`currencyPair`quoteNames`quoteTerms`quotes,
+        ["STRING", "TEMPORAL", "DOUBLE", "STRING", "STRING", "STRING", "STRING[]", "STRING[]", "DOUBLE[]"],
+        description_fx_european_option_pricer)
+}
+
+publishMCPTools(`fx_european_option_pricer)
+
+
+
+description_query_futu_ctd = '
+查询国债期货合约的最便宜可交割券（CTD, Cheapest To Deliver）。
+
+参数说明：
+- FutuCtdWhere: STRING，筛选FutuCtd表的WHERE条件，如 "secID = \"T2509.CCFX\" and tradeDate = 2025.05.06"
+
+可用筛选列：
+- secID：期货合约代码
+- tradeDate：交易日
+
+返回值：
+返回最便宜可交割券的详细信息，可以直接用于下游处理。如果未找到相关记录，则返回相应提示。
+
+示例：
+FutuCtdWhere = "secID = \"T2509.CCFX\" and tradeDate = 2025.05.06"
+'
+
+def query_futu_ctd_wrapper(FutuCtdWhere) {
+    // 查询FutuCtd表，找出ibIrr最高的CTD券
+    FutuCtdSql = 'select tradeDate, ctdSecID, ibSecShortName, ibIrr from loadTable("dfs://ficc_data2", "FutuCtd") where ' + FutuCtdWhere + ' order by ibIrr desc limit 1'
+    FutuCtdResult = parseExpr(FutuCtdSql).eval()
+
+    if (size(FutuCtdResult) == 0) {
+        return "未找到期货匹配的最便宜可交割债券记录，筛选条件: " + FutuCtdWhere
+    }
+
+    // 查询instrument表，获取完整的债券结构体
+    fullInstrumentData = select instrumentId, instrumentName, assetType, listingDate, market, instrument from loadTable("dfs://ficc_data2", "instrument") where instrumentId = FutuCtdResult.ctdSecID[0]
+
+    if (size(fullInstrumentData) == 0) {
+        return "未在库中找到CTD券的详细信息，债券代码: " + FutuCtdResult.ctdSecID[0] + "请提供该CTD券的详细信息"
+    }
+
+    instrumentObj = fullInstrumentData.instrument[0]
+    instrumentDict = extractInstrument(instrumentObj)
+
+    // 返回详细信息
+    result = dict(`ctdSecID`tradeDate`ibSecShortName`ibIrr`instrumentDetail, 
+        [FutuCtdResult.ctdSecID[0], FutuCtdResult.tradeDate[0], FutuCtdResult.ibSecShortName[0], FutuCtdResult.ibIrr[0], instrumentDict])
+    return toStdJson(result)
+}
+
+if (`query_futu_ctd in (exec name from listMCPTools())) {
+    updateMCPTool(`query_futu_ctd, query_futu_ctd_wrapper,
+        [`FutuCtdWhere],
+        ["STRING"],
+        description_query_futu_ctd)
+} else {
+    addMCPTool(`query_futu_ctd, query_futu_ctd_wrapper,
+        [`FutuCtdWhere],
+        ["STRING"],
+        description_query_futu_ctd)
+}
+
+publishMCPTools(`query_futu_ctd)
