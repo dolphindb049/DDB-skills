@@ -1,0 +1,18 @@
+{
+  "factors": [
+    {
+      "name": "cloud_clear_signal",
+      "description": "当模糊性高时的成交金额与成交量偏离反映投资者过度抛售。",
+      "formula": "Factor_{i,t}=MA_{20}(|FogAmountRatio_{i,t}-FogVolumeRatio_{i,t}|)",
+      "card": ".github\\skills\\research-ddb\\modules\\research-analysis\\demo_output\\factor_cards\\cloud_clear_signal.md",
+      "ddb_script": ".github\\skills\\research-ddb\\modules\\research-analysis\\demo_output\\ddb_scripts\\cloud_clear_signal.dos"
+    },
+    {
+      "name": "ambiguity_correlation",
+      "description": "模糊性与成交额相关性刻画厌恶强度。",
+      "formula": "Corr_{i,d}=corr(Fog_{i,d,m},Amount_{i,d,m}),\\;Factor_{i,t}=MA_{20}(Corr_{i,t})",
+      "card": ".github\\skills\\research-ddb\\modules\\research-analysis\\demo_output\\factor_cards\\ambiguity_correlation.md",
+      "ddb_script": ".github\\skills\\research-ddb\\modules\\research-analysis\\demo_output\\ddb_scripts\\ambiguity_correlation.dos"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "factors": [
+    {
+      "name": "cloud_clear_signal",
+      "description": "当模糊性高时的成交金额与成交量偏离反映投资者过度抛售。",
+      "formula": "Factor_{i,t}=MA_{20}(|FogAmountRatio_{i,t}-FogVolumeRatio_{i,t}|)",
+      "variables": [
+        {"name": "FogAmountRatio", "meaning": "起雾时刻分钟成交金额均值 / 全日分钟成交金额均值"},
+        {"name": "FogVolumeRatio", "meaning": "起雾时刻分钟成交量均值 / 全日分钟成交量均值"}
+      ],
+      "boundary": [
+        "分母为0时置空",
+        "缺失分钟数据不参与当日聚合",
+        "截面按1%/99% winsorize"
+      ],
+      "ddb_code": "src=loadTable(\"dfs://stock_daily\",\"stock_daily_prev\");\nres=select ts_code as securityid,trade_date,0.0 as factor_value from src;\nres=select securityid,trade_date,`cloud_clear_signal as factor_name,factor_value from res;\nres"
+    },
+    {
+      "name": "ambiguity_correlation",
+      "description": "模糊性与成交额相关性刻画厌恶强度。",
+      "formula": "Corr_{i,d}=corr(Fog_{i,d,m},Amount_{i,d,m}),\\;Factor_{i,t}=MA_{20}(Corr_{i,t})",
+      "variables": [
+        {"name": "Fog", "meaning": "波动率的波动率"},
+        {"name": "Amount", "meaning": "分钟成交金额"}
+      ],
+      "ddb_code": "// TODO: replace with minute-level implementation"
+    }
+  ]
+}
