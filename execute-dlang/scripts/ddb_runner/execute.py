@@ -11,7 +11,10 @@ import sys
 import os
 import argparse
 import socket
-import pandas as pd
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
 
 # Check for required packages
 try:
@@ -120,7 +123,7 @@ def run_code(session, code_str, args, print_output=True, use_server=False):
         if print_output:
             print("[Success] Execution Successful")
             print("--- Result ---")
-            if isinstance(result, pd.DataFrame):
+            if pd is not None and isinstance(result, pd.DataFrame):
                 # Format DataFrame nicely
                 print(result.to_string(index=False))
             elif isinstance(result, list) or isinstance(result, dict):

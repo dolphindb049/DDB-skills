@@ -9,6 +9,7 @@ sourceDbPath = "dfs://data_pricing_skill" // instrument 库或 data_pricing 库
 outDbPath = "dfs://bond_pricing_workflow_v2"
 pricingDate = 2026.01.05
 sampleSize = 50
+targetMaturityYear = 2026
 
 instrumentTableName = "instrument"      // sourceMode=instrument_db 时使用
 rawBondTableName = "raw_bond_info"      // sourceMode=data_pricing_raw 时使用
@@ -34,7 +35,7 @@ def mapFrequency(cpnFreqCD, couponTypeCD){
     )
 }
 
-def buildFromInstrumentDB(dbPath, tableName, pDate, n){
+def buildFromInstrumentDB(dbPath, tableName, pDate, n, maturityYear){
     t = loadTable(dbPath, tableName)
     raw = select secID, issuer, couponTypeCD, cpnFreqCD, coupon, par, firstAccrDate, maturityDate, publishDate
           from t
@@ -50,7 +51,7 @@ def buildFromInstrumentDB(dbPath, tableName, pDate, n){
                      first(maturityDate) as maturity
               from raw group by secID
 
-    norm = select instrumentId,
+        norm = select instrumentId,
                   issuer,
                   iif(string(couponTypeCD)=="ZERO", "ZeroCouponBond", "FixedRateBond") as bondType,
                   start,
@@ -61,9 +62,9 @@ def buildFromInstrumentDB(dbPath, tableName, pDate, n){
                   "ActualActualISDA" as dayCountConvention,
                   "TREASURY_BOND" as subType
            from sampled
-           where start <= pDate
+            where start <= pDate
 
-    s = select * from norm order by maturity asc
+    s = select * from norm where year(maturity)=maturityYear order by maturity asc
     m = min(n, size(s))
     if(m <= 0){
         return s
@@ -71,7 +72,7 @@ def buildFromInstrumentDB(dbPath, tableName, pDate, n){
     return s[0..(m-1)]
 }
 
-def buildFromDataPricingRaw(dbPath, rawBondTable, pDate, n){
+def buildFromDataPricingRaw(dbPath, rawBondTable, pDate, n, maturityYear){
     t = loadTable(dbPath, rawBondTable)
     // data_pricing 中 coupon 为百分数
     raw = select secID as instrumentId,
@@ -93,7 +94,7 @@ def buildFromDataPricingRaw(dbPath, rawBondTable, pDate, n){
                      first(maturity) as maturity
               from raw group by instrumentId
 
-    norm = select instrumentId,
+        norm = select instrumentId,
                   issuer,
                   "FixedRateBond" as bondType,
                   start,
@@ -104,9 +105,9 @@ def buildFromDataPricingRaw(dbPath, rawBondTable, pDate, n){
                   "ActualActualISDA" as dayCountConvention,
                   "TREASURY_BOND" as subType
            from sampled
-           where start <= pDate
+            where start <= pDate
 
-    s = select * from norm order by maturity asc
+    s = select * from norm where year(maturity)=maturityYear order by maturity asc
     m = min(n, size(s))
     if(m <= 0){
         return s
@@ -201,9 +202,9 @@ def buildCurveByMode(mode, srcDb, rawCurveTable, pDate, interpMethod, extrapMeth
 // ===== MAIN =====
 bondDesc = NULL
 if(sourceMode=="instrument_db"){
-    bondDesc = buildFromInstrumentDB(sourceDbPath, instrumentTableName, pricingDate, sampleSize)
+    bondDesc = buildFromInstrumentDB(sourceDbPath, instrumentTableName, pricingDate, sampleSize, targetMaturityYear)
 }else if(sourceMode=="data_pricing_raw"){
-    bondDesc = buildFromDataPricingRaw(sourceDbPath, rawBondTableName, pricingDate, sampleSize)
+    bondDesc = buildFromDataPricingRaw(sourceDbPath, rawBondTableName, pricingDate, sampleSize, targetMaturityYear)
 }else{
     throw "Unsupported sourceMode"
 }
