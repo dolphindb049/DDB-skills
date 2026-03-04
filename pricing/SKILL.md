@@ -1,87 +1,25 @@
----
-name: pricing
-description: 债券定价与风险分析技能（最小可跑通版）。聚焦标准化输入、定价、风险和偏差评估。
-license: MIT
-metadata:
-  author: ddb-user
-  version: "1.3.0"
-  tags: ["bond", "pricing", "risk", "dolphindb", "ficc", "minimal"]
----
+# .github/skills/pricing
 
-# pricing（FICC 定价）
+## 技能概述 / Overview
 
-定位：
-- 本 skill 只负责“定价与风险计算”。
-- 输入数据准备建议交给 `prepare_data_for_pricing`。
-- 执行方式统一使用 `execute-dlang`。
+此技能集成了FICC债券资产在DolphinDB中的定价逻辑，贯穿从数据准备、模型映射、再到最终输出价格结果的完整工作流。主要负责将标准化的原始数据处理为您定义的资产定价模型表。
 
-默认输出库：`dfs://bond_pricing_workflow_v2`。
+## 核心流程 / Core Workflow
 
-## 什么时候用
+完成整个工作流需要执行以下脚本，更多细节请查阅相关文档：
 
-- 你已经有了可用债券样本和曲线数据。
-- 你希望快速得到 `modelPrice / diffBp / Greeks`。
+### 1. 准备输出数据的表结构
+- **用途**: 创建基于原始数据的各种输出结构表。它包括了资产定义（Instrument）、市场数据（MarketData）以及最终得到的定价和风险结果。
+- **脚本**: [`scripts/02_prepare_output_schema.dos`](scripts/02_prepare_output_schema.dos)
+  - 根据输入数据和定价模型建立相应的输出存储。
+- **说明文档**: [`reference/TABLE_SCHEMA_AND_WORKFLOW.md`](reference/TABLE_SCHEMA_AND_WORKFLOW.md)
 
-## 不适用场景
+### 2. 运行统一的定价流水线
+- **用途**: 串联之前建立的库表结构，执行统一的计算逻辑和核心函数，产生输出数据并存入指定的分析或展示表中。
+- **脚本**: [`scripts/05_run_unified_pipeline.dos`](scripts/05_run_unified_pipeline.dos)
+  - 调用相关的定价函数和参数设置。具体函数和参数信息参考相关说明文档。
+- **说明文档**: [`reference/TABLE_SCHEMA_AND_WORKFLOW.md`](reference/TABLE_SCHEMA_AND_WORKFLOW.md)
+  - 在相关文档中提供了对应定价函数的说明和调用方法，方便后续调整或独立调用各个计算步骤。
 
-- 还没有可用输入数据（先跑 `prepare_data_for_pricing`）。
-- 你要做交易执行、风控审批或生产级服务编排（本 skill 不覆盖）。
-
-## 最小跑通（推荐）
-
-在仓库根目录执行：
-
-```bash
-python3 .github/skills/execute-dlang/scripts/ddb_runner/execute.py .github/skills/pricing/scripts/02_prepare_output_schema.dos --host 127.0.0.1 --port 8848 --user admin --password 123456
-python3 .github/skills/execute-dlang/scripts/ddb_runner/execute.py .github/skills/pricing/scripts/05_run_unified_pipeline.dos --host 127.0.0.1 --port 8848 --user admin --password 123456
-```
-
-完成后核心结果表：
-- `pricing_result`
-- `pricing_risk`
-- `pricing_curve_points`
-
-## 可选步骤
-
-- 单券细节：
-
-```bash
-python3 .github/skills/execute-dlang/scripts/ddb_runner/execute.py .github/skills/pricing/scripts/04_asset_pricing_detail.dos --host 127.0.0.1 --port 8848 --user admin --password 123456
-```
-
-- 外部市场价对比：
-
-```bash
-python3 .github/skills/pricing/python/ingest_external_market_csv.py --csv /path/to/market_price.csv --host 127.0.0.1 --port 8848 --user admin --password 123456
-python3 .github/skills/execute-dlang/scripts/ddb_runner/execute.py .github/skills/pricing/scripts/06_compare_with_external_market.dos --host 127.0.0.1 --port 8848 --user admin --password 123456
-```
-
-## 与 `prepare_data_for_pricing` 的关系
-
-- `prepare_data_for_pricing`：生成/导入定价输入数据。
-- `pricing`：基于输入数据做定价、风险和偏差分析。
-
-## 目录（保留）
-
-```text
-pricing/
-├── SKILL.md
-├── README.md
-├── scripts/
-│   ├── 00_cleanup_shared_objects.dos
-│   ├── 01_data_discovery.dos
-│   ├── 02_prepare_output_schema.dos
-│   ├── 03_run_pricing_pipeline.dos
-│   ├── 04_asset_pricing_detail.dos
-│   ├── 05_run_unified_pipeline.dos
-│   └── 06_compare_with_external_market.dos
-├── reference/
-│   ├── THEORY.md
-│   ├── DATA_SOURCES.md
-│   ├── INTERFACE_CONTRACT.md
-│   └── ORCHESTRATION.md
-└── python/
-    ├── requirements.txt
-    ├── visualize_pricing.py
-    └── ingest_external_market_csv.py
-```
+## 参考文档
+请参阅 [`reference/INTERFACE_CONTRACT.md`](reference/INTERFACE_CONTRACT.md) 获取校验库表所需信息的介绍，以及 [`reference/TABLE_SCHEMA_AND_WORKFLOW.md`](reference/TABLE_SCHEMA_AND_WORKFLOW.md) 以了解各个函数的调用要求。

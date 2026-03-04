@@ -1,92 +1,44 @@
-````skill
----
-name: prepare_data_for_pricing
-description: 债券定价前的数据准备技能（最小可跑通版）：建库建表、样本导入、双案例验证与报告输出。
-license: MIT
-metadata:
-  author: jrzhang
-  version: "1.1.0"
-  tags: ["DolphinDB", "Bond", "Pricing", "execute-dlang", "ficc", "minimal"]
----
+# .github/skills/prepare_data_for_pricing
 
-# prepare_data_for_pricing
+## 技能概述 / Overview
 
-这个 skill 只做“定价前准备与校验基线”，不做交易策略与执行。
+此技能提供从优矿等API获取FICC定价所需基础数据，并将其导入到DolphinDB指定表中的完整流程。
 
-## 什么时候用
+## 核心流程 / Core Workflow
 
-- 你需要先准备标准化输入数据，再交给 `pricing` 做定价。
-- 你希望验证环境是否可支持债券定价流程。
+完成整个数据准备过程，请依次执行以下步骤。如果在任何步骤中遇到需要修改表名或理解字段的疑问，请参考对应的说明文档。
 
-## 不适用场景
+### 1. 探测API连通性
+- **用途**: 检查能否正常访问数据API源。
+- **脚本**: [`scripts/10_probe_uqer_api.py`](scripts/10_probe_uqer_api.py)
+  - 这是一个需要传入 `token` 的Python脚本。
+- **说明文档**: 暂无。
 
-- 你要直接做生产级定价服务编排。
-- 你要实时行情接入与交易联动。
+### 2. 下载极小样本数据
+- **用途**: 下载少量（20条以内）样本数据，用于检查数据结构和字段。
+- **脚本**: [`scripts/20_download_minimal_samples.py`](scripts/20_download_minimal_samples.py)
+  - 该脚本会在本地 `sample_data/` 目录生成对应的CSV文件。
+  - *如果 `sample_data/` 目录中已经有数据，可以跳过此步骤直接查看。*
+- **说明文档**: [`reference/SCHEMA_DESCRIPTION.md`](reference/SCHEMA_DESCRIPTION.md)
 
-## 最小跑通（默认离线样本）
+### 3. 创建DolphinDB库表 (Schema)
+- **用途**: 在DolphinDB中创建用于存放定价基础数据的分布式数据库和表。
+- **脚本**: [`scripts/30_create_pricing_schema.dos`](scripts/30_create_pricing_schema.dos)
+  - 如果DolphinDB上已存在目标库表，可以不执行此脚本。
+  - 支持传入参数自定义库表名称，详情参见说明文档。
+- **说明文档**: [`reference/SCHEMA_DESCRIPTION.md`](reference/SCHEMA_DESCRIPTION.md)
 
-默认使用 `reference/sample_data`，不依赖外部 API。
+### 4. 探查现有数据
+- **用途**: 在DolphinDB中探测现有数据，验证前一个步骤创建的库表，并校验表结构和字段信息。
+- **脚本**: [`../pricing/scripts/01_data_discovery.dos`](../pricing/scripts/01_data_discovery.dos)
+  - 检查现有的库表中的数据情况。
+- **说明文档**: [`reference/SCHEMA_DESCRIPTION.md`](reference/SCHEMA_DESCRIPTION.md)
 
-```bash
-python3 -m pip install -r .github/skills/prepare_data_for_pricing/scripts/requirements.txt
-python3 .github/skills/execute-dlang/scripts/ddb_runner/execute.py .github/skills/prepare_data_for_pricing/scripts/30_create_pricing_schema.dos --host 127.0.0.1 --port 8848 --user admin --password 123456
-python3 .github/skills/prepare_data_for_pricing/scripts/40_ingest_raw_to_ddb.py
-python3 .github/skills/execute-dlang/scripts/ddb_runner/execute.py .github/skills/prepare_data_for_pricing/scripts/50_run_case1_irs_pricing.dos --host 127.0.0.1 --port 8848 --user admin --password 123456
-python3 .github/skills/execute-dlang/scripts/ddb_runner/execute.py .github/skills/prepare_data_for_pricing/scripts/60_run_case2_curve_bootstrap.dos --host 127.0.0.1 --port 8848 --user admin --password 123456
-python3 .github/skills/prepare_data_for_pricing/scripts/70_generate_standard_report.py
-```
-
-## 可选在线数据刷新（有 token 时）
-
-```bash
-python3 .github/skills/prepare_data_for_pricing/scripts/10_probe_uqer_api.py
-python3 .github/skills/prepare_data_for_pricing/scripts/20_download_minimal_samples.py
-```
-
-运行在线刷新前，请设置环境变量 `DATAYES_TOKEN`。
-
-## 产出
-
-- 数据库：`dfs://data_pricing_skill`
-- 结果表：`pricing_result_case1`、`pricing_result_case2`
-- 报告：`reference/reports/pricing_report_*.md`
-
-## 与 `pricing` 的关系
-
-- 先运行 `prepare_data_for_pricing` 生成标准输入。
-- 再运行 `pricing` 完成统一定价与风险分析。
-
-## 目录（精简）
-
-```text
-prepare_data_for_pricing/
-├── SKILL.md
-├── reference/
-│   ├── API文档/
-│   ├── API_CATALOG.md
-│   ├── WORKFLOW.md
-│   ├── TABLE_SCHEMA_AND_WORKFLOW.md
-│   └── sample_data/
-└── scripts/
-    ├── requirements.txt
-    ├── pricing_common.py
-    ├── 10_probe_uqer_api.py
-    ├── 20_download_minimal_samples.py
-    ├── 30_create_pricing_schema.dos
-## 对业务的直接含义（报告会给出）
-
-- 模型价格（NPV）与 CFETS 净价偏差是否可接受
-- 贴现曲线（IRS）与同类券曲线（bondYieldCurveBuilder）哪个更贴合样本
-- 偏差最大的券种与可能原因（期限段、票息频率、报价口径）
+### 5. 导入全量数据至DolphinDB
+- **用途**: 从API获取全量或指定日期范围内的数据，并直接导入DolphinDB的对应表中。
+- **脚本**: [`scripts/40_ingest_raw_to_ddb.py`](scripts/40_ingest_raw_to_ddb.py)
+  - 该步骤需要结合前几步创建好的库表结构。
+- **说明文档**: [`reference/SCHEMA_DESCRIPTION.md`](reference/SCHEMA_DESCRIPTION.md)
 
 ## 参考文档
-
-- 流程：`reference/WORKFLOW.md`
-- 库表结构：`reference/TABLE_SCHEMA_AND_WORKFLOW.md`
-- API字典：`reference/API_CATALOG.md`
-- 联合调试：`reference/COMPATIBILITY_WITH_PRICING_SKILL.md`
-- 函数文档：
-  - `bondPricer`: https://docs.dolphindb.cn/zh/funcs/b/bondPricer.html
-  - `bondYieldCurveBuilder`: https://docs.dolphindb.cn/zh/funcs/b/bondYieldCurveBuilder.html
-
-````
+请参阅 [`reference/SCHEMA_DESCRIPTION.md`](reference/SCHEMA_DESCRIPTION.md) 获取每个表的具体用途，各字段的含义、类型，以及在各个脚本中支持的入参说明。

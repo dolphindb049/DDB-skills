@@ -9,9 +9,9 @@
     "cpnFreqCD":"1PY",
     "couponTypeCD":"FIXED",
     "typeName":"国债",
-    "ytm":1.7151,
-    "netPx":98.7329,
-    "tradeDate":"2026-01-05"
+    "ytm":1.605,
+    "netPx":99.3643,
+    "tradeDate":"2026-03-02"
   },
   {
     "ticker":"250015",
@@ -23,9 +23,9 @@
     "cpnFreqCD":"1PY",
     "couponTypeCD":"FIXED",
     "typeName":"国债",
-    "ytm":1.385,
-    "netPx":100.0867,
-    "tradeDate":"2026-01-05"
+    "ytm":1.3625,
+    "netPx":100.1356,
+    "tradeDate":"2026-03-02"
   },
   {
     "ticker":"250013",
@@ -37,9 +37,9 @@
     "cpnFreqCD":"1PY",
     "couponTypeCD":"FIXED",
     "typeName":"国债",
-    "ytm":1.2799,
-    "netPx":100.0232,
-    "tradeDate":"2026-01-05"
+    "ytm":1.24,
+    "netPx":100.0317,
+    "tradeDate":"2026-03-02"
   },
   {
     "ticker":"250012",
@@ -51,9 +51,9 @@
     "cpnFreqCD":"1PY",
     "couponTypeCD":"FIXED",
     "typeName":"国债",
-    "ytm":1.3198,
-    "netPx":100.0831,
-    "tradeDate":"2026-01-05"
+    "ytm":1.28,
+    "netPx":100.1251,
+    "tradeDate":"2026-03-02"
   },
   {
     "ticker":"250010",
@@ -66,8 +66,8 @@
     "couponTypeCD":"FIXED",
     "typeName":"国债",
     "ytm":1.315,
-    "netPx":100.3357,
-    "tradeDate":"2026-01-05"
+    "netPx":100.3149,
+    "tradeDate":"2026-03-02"
   },
   {
     "ticker":"250011",
@@ -79,8 +79,8 @@
     "cpnFreqCD":"2PY",
     "couponTypeCD":"FIXED",
     "typeName":"国债",
-    "ytm":1.827,
-    "netPx":98.6506,
-    "tradeDate":"2026-01-05"
+    "ytm":1.7475,
+    "netPx":99.3406,
+    "tradeDate":"2026-03-02"
   }
 ]
