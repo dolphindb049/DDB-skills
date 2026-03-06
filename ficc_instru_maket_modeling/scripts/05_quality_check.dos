@@ -34,22 +34,22 @@ mdMissRef = (exec count(*) from mdTb where sourceTable = "api_getMktIBBondd+api_
 mdMissName = (exec count(*) from mdTb where sourceTable = "api_getMktIBBondd+api_getBond" and (isNull(name) or trim(name)==""))[0]
 mdMissObj = (exec count(*) from mdTb where sourceTable = "api_getMktIBBondd+api_getBond" and isNull(data))[0]
 mdMissCurveType = (exec count(*) from mdTb where sourceTable = "api_getMktIBBondd+api_getBond" and (isNull(curveType) or trim(curveType)==""))[0]
-mdMissNodeDates = (exec count(*) from mdTb where sourceTable = "api_getMktIBBondd+api_getBond" and (isNull(nodeDates) or trim(nodeDates)==""))[0]
+mdMissDates = (exec count(*) from mdTb where sourceTable = "api_getMktIBBondd+api_getBond" and (isNull(dates) or size(dates)==0))[0]
 mdCurveRawMissRef = (exec count(*) from mdTb where sourceTable = "curve_shch_yield_raw" and isNull(referenceDate))[0]
 mdCurveRawMissName = (exec count(*) from mdTb where sourceTable = "curve_shch_yield_raw" and (isNull(name) or trim(name)==""))[0]
 mdCurveRawMissObj = (exec count(*) from mdTb where sourceTable = "curve_shch_yield_raw" and isNull(data))[0]
 mdCurveRawMissCurveType = (exec count(*) from mdTb where sourceTable = "curve_shch_yield_raw" and (isNull(curveType) or trim(curveType)==""))[0]
-mdCurveRawMissNodeDates = (exec count(*) from mdTb where sourceTable = "curve_shch_yield_raw" and (isNull(nodeDates) or trim(nodeDates)==""))[0]
+mdCurveRawMissDates = (exec count(*) from mdTb where sourceTable = "curve_shch_yield_raw" and (isNull(dates) or size(dates)==0))[0]
 
 tableInsert(qrows, "null_check", "MarketData", "missing_referenceDate", double(mdMissRef), "referenceDate空值数量", now())
 tableInsert(qrows, "null_check", "MarketData", "missing_name", double(mdMissName), "name空值数量", now())
 tableInsert(qrows, "null_check", "MarketData", "missing_mktdata_obj", double(mdMissObj), "data对象空值数量", now())
 tableInsert(qrows, "null_check", "MarketData", "missing_curveType", double(mdMissCurveType), "curveType空值数量", now())
-tableInsert(qrows, "null_check", "MarketData", "missing_nodeDates", double(mdMissNodeDates), "nodeDates空值数量", now())
+tableInsert(qrows, "null_check", "MarketData", "missing_dates", double(mdMissDates), "dates空向量数量", now())
 tableInsert(qrows, "null_check", "MarketData", "missing_referenceDate_curve_raw", double(mdCurveRawMissRef), "curve_raw来源referenceDate空值数量", now())
 tableInsert(qrows, "null_check", "MarketData", "missing_name_curve_raw", double(mdCurveRawMissName), "curve_raw来源name空值数量", now())
 tableInsert(qrows, "null_check", "MarketData", "missing_mktdata_obj_curve_raw", double(mdCurveRawMissObj), "curve_raw来源data对象空值数量", now())
 tableInsert(qrows, "null_check", "MarketData", "missing_curveType_curve_raw", double(mdCurveRawMissCurveType), "curve_raw来源curveType空值数量", now())
-tableInsert(qrows, "null_check", "MarketData", "missing_nodeDates_curve_raw", double(mdCurveRawMissNodeDates), "curve_raw来源nodeDates空值数量", now())
+tableInsert(qrows, "null_check", "MarketData", "missing_dates_curve_raw", double(mdCurveRawMissDates), "curve_raw来源dates空向量数量", now())
 
 select * from std_qc_summary order by checkName, tableName, metric

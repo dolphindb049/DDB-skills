@@ -54,6 +54,8 @@ def parseCurveSubType(curveName){
 def parseCurveRating(curveName){
     n = string(curveName)
     if(like(n, "%(超AAA)%")) return "AAA"
+    if(like(n, "%(AAA+)%")) return "AAA+"
+    if(like(n, "%(AAA-)%")) return "AAA-"
     if(like(n, "%(AAA)%")) return "AAA"
     if(like(n, "%(AA+)%")) return "AA+"
     if(like(n, "%(AA-)%")) return "AA-"
@@ -191,8 +193,8 @@ if(exists("std_instrument_bond")){
 }
 
 mdRows = table(1:0,
-    `referenceDate`name`mktDataType`curveType`dayCountConvention`compounding`frequency`interpMethod`extrapMethod`curveName`currency`nodeDates`nodeValues`data`sourceDbPath`sourceTable`updateTime,
-    [DATE,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,MKTDATA,STRING,STRING,TIMESTAMP])
+    `referenceDate`name`mktDataType`curveType`dayCountConvention`compounding`frequency`interpMethod`extrapMethod`dates`values`curveName`currency`settlement`curveModel`curveParams`data`sourceDbPath`sourceTable`updateTime,
+    [DATE,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,DATE[],DOUBLE[],STRING,STRING,DATE,STRING,ANY,MKTDATA,STRING,STRING,TIMESTAMP])
 
 mktBase = select string(secID) as secID, date(tradeDate) as referenceDate,
                  coalesce(double(YTM), coalesce(double(closeYield), double(wAvgYield))) / 100.0 as yv
@@ -234,8 +236,8 @@ from mktNodeAgg
 order by referenceDate, curveName, nodeDate
 
 apiCurvePrepared = table(1:0,
-    `referenceDate`name`curveName`nodeDates`nodeValues,
-    [DATE,STRING,STRING,STRING,STRING])
+    `referenceDate`name`curveName`datesVec`valuesVec,
+    [DATE,STRING,STRING,DATE[],DOUBLE[]])
 
 apiCurveKeys = select distinct referenceDate, curveName from mktNodeCurveAgg
 for(i in 0:(size(apiCurveKeys.referenceDate)-1)){
@@ -249,14 +251,14 @@ for(i in 0:(size(apiCurveKeys.referenceDate)-1)){
         rd,
         cn,
         cn,
-        concat(string(sub.nodeDate), "|"),
-            concat(string(sub.nodeValue), "|"))
+        sub.nodeDate,
+        sub.nodeValue)
 }
 
 if(size(apiCurvePrepared.referenceDate) > 0){
     for(i in 0:(size(apiCurvePrepared.referenceDate)-1)){
-        dtv = date(split(apiCurvePrepared.nodeDates[i], "|"))
-        vvv = double(split(apiCurvePrepared.nodeValues[i], "|"))
+        dtv = apiCurvePrepared.datesVec[i]
+        vvv = apiCurvePrepared.valuesVec[i]
         if(size(dtv) < 2 or size(vvv) < 2){
             continue
         }
@@ -276,10 +278,13 @@ if(size(apiCurvePrepared.referenceDate) > 0){
             "Annual",
             "Linear",
             "Flat",
+            dtv,
+            vvv,
             cnApi,
             "CNY",
-            apiCurvePrepared.nodeDates[i],
-            apiCurvePrepared.nodeValues[i],
+            date(NULL),
+            "Bootstrap",
+            NULL,
             mdObj,
             rawDbPath,
             "api_getMktIBBondd+api_getBond",
@@ -320,37 +325,27 @@ if(existsTable(curveRawDbPath, "curve_shch_yield_raw")){
     group by referenceDate, rawCurveName, nodeDate
     order by referenceDate, rawCurveName, nodeDate
 
-    curveRawPrepared = table(1:0,
-        `referenceDate`name`subType`creditRating`nodeDatesVec`nodeValuesVec,
-        [DATE,STRING,STRING,STRING,STRING,STRING])
+    prepMeta = select top 1 mappingCode
+               from mdMapTb
+               where sourceDbPath = curveRawDbPath
+                 and sourceTable = "curve_shch_yield_raw"
+                 and targetDbPath = mdDbPath
+                 and targetTable = "MarketData"
+                 and targetField = "__prepare_groupby"
+               order by fieldOrder
 
-    curveRawKeys = select distinct referenceDate, rawCurveName from curveRawNodeAgg
-    for(j in 0:(size(curveRawKeys.referenceDate)-1)){
-        rd2 = curveRawKeys.referenceDate[j]
-        rawCn2 = curveRawKeys.rawCurveName[j]
-        st2 = parseCurveSubType(rawCn2)
-        cr2 = parseCurveRating(rawCn2)
-        sub2 = select nodeDate, nodeValue
-               from curveRawNodeAgg
-             where referenceDate = rd2 and rawCurveName = rawCn2 and nodeDate > rd2
-               order by nodeDate
-        if(size(sub2.nodeDate) < 2){
-            continue
-        }
-        tableInsert(curveRawPrepared,
-            rd2,
-            rawCn2,
-            st2,
-            cr2,
-            concat(string(sub2.nodeDate), "|"),
-            concat(string(sub2.nodeValue), "|"))
+    if(size(prepMeta.mappingCode) == 0){
+        throw "missing groupby prepare mapping code for curve_shch_yield_raw"
     }
+
+    curveRawPrepared = eval(parseExpr(prepMeta.mappingCode[0]))
+    curveRawPrepared = select * from curveRawPrepared where size(datesVec) >= 2 and size(valuesVec) >= 2
 
     if(size(curveRawPrepared.referenceDate) > 0){
         curveRawMdWide = applyFieldMappingByMeta(mdMapTb, "curveRawPrepared", curveRawDbPath, "curve_shch_yield_raw", mdDbPath, "MarketData")
         for(j in 0:(size(curveRawMdWide.referenceDate)-1)){
-            dtv2 = date(split(curveRawMdWide.nodeDates[j], "|"))
-            vvv2 = double(split(curveRawMdWide.nodeValues[j], "|"))
+            dtv2 = curveRawMdWide.dates[j]
+            vvv2 = curveRawMdWide.values[j]
             if(size(dtv2) < 2 or size(vvv2) < 2){
                 continue
             }
@@ -368,10 +363,13 @@ if(existsTable(curveRawDbPath, "curve_shch_yield_raw")){
                 curveRawMdWide.frequency[j],
                 curveRawMdWide.interpMethod[j],
                 curveRawMdWide.extrapMethod[j],
+                dtv2,
+                vvv2,
                 curveRawMdWide.curveName[j],
                 curveRawMdWide.currency[j],
-                curveRawMdWide.nodeDates[j],
-                curveRawMdWide.nodeValues[j],
+                curveRawMdWide.settlement[j],
+                curveRawMdWide.curveModel[j],
+                curveRawMdWide.curveParams[j],
                 mdObj2,
                 curveRawMdWide.sourceDbPath[j],
                 curveRawMdWide.sourceTable[j],
@@ -380,6 +378,7 @@ if(existsTable(curveRawDbPath, "curve_shch_yield_raw")){
         }
     }
 }
+
 
 append!(mdOut, mdRows)
 
