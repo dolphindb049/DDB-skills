@@ -1,0 +1,52 @@
+// SHCH Curve Raw Import - Step 1: 建库建表（schema）
+// 说明：
+// 1) 该文件会被 Python 主流程读取并执行；
+// 2) __DB_PATH__ 占位符会在运行时替换为 DDB_DB_PATH；
+// 3) 为保证重跑幂等，默认先 drop 再 create。
+
+if(existsDatabase("__DB_PATH__")){
+    dropDatabase("__DB_PATH__")
+}
+database("__DB_PATH__", HASH, [SYMBOL, 31])
+
+CREATE TABLE "__DB_PATH__"."curve_shch_yield_raw" (
+    curveName STRING [comment="曲线名称"],
+    curveType STRING [comment="曲线类型（即期/到期/远期的即期/远期的到期）"],
+    referenceDate DATE [comment="曲线日期"],
+    standardTermYear DOUBLE [comment="标准期限（年）"],
+    yieldPct DOUBLE [comment="收益率（%）"],
+    nYear DOUBLE [comment="N（年）"],
+    kYear DOUBLE [comment="K（年）"],
+    tenorLabel STRING [comment="期限描述（如 3M/1Y/10Y）"],
+    sourceFile STRING [comment="来源文件名"],
+    importBatch STRING [comment="导入批次号"],
+    importTime TIMESTAMP [comment="导入时间"]
+)
+PARTITIONED BY curveName
+comment = "SHCH曲线原始数据（CSV全量入库）"
+
+CREATE TABLE "__DB_PATH__"."curve_file_manifest" (
+    sourceFile STRING [comment="来源文件名"],
+    rowCount LONG [comment="文件行数"],
+    minDate DATE [comment="最小日期"],
+    maxDate DATE [comment="最大日期"],
+    importBatch STRING [comment="导入批次号"],
+    importTime TIMESTAMP [comment="导入时间"]
+)
+PARTITIONED BY sourceFile
+comment = "SHCH曲线文件导入清单"
+
+CREATE TABLE "__DB_PATH__"."curve_table_comment_meta" (
+    tableName STRING [comment="表名"],
+    tableComment STRING [comment="表注释"]
+)
+PARTITIONED BY tableName
+comment = "曲线原始库表注释元数据"
+
+meta = table(
+    ["curve_shch_yield_raw","curve_file_manifest"] as tableName,
+    ["SHCH曲线原始数据（CSV全量入库）","SHCH曲线文件导入清单"] as tableComment
+)
+loadTable("__DB_PATH__", "curve_table_comment_meta").append!(meta)
+
+"schema_done"

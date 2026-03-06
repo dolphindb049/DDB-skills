@@ -1,33 +1,76 @@
+```skill
 ---
 name: ficc_pricing
-description: 构建 FICC 定价的 pipeline，从已经标准化的 instrument 和 MarketData 库表去生成最终的定价结果。
+description: 基于 DolphinDB bondPricer 的标准化 5 步定价流水线。支持两组输入源自动探测、曲线依赖拦截、批量定价、共享表报告与落库 schema。
 license: MIT
 metadata:
   author: ddb-user
-  version: "1.0.0"
+  version: "2.0.0"
+  tags: ["dolphindb", "ficc", "bondPricer", "pipeline"]
+  dependencies: [".github/skills/execute-dlang"]
 ---
 
+# FICC Pricing Pipeline Skill
 
-## 技能概述 / Overview
+本技能严格按 `bondPricer(instrument, pricingDate, discountCurve, [spreadCurve], [setting])` 设计，拆成可参数化 5 步流水线。
 
-此技能集成了FICC债券资产在DolphinDB中的定价逻辑，贯穿从数据准备、模型映射、再到最终输出价格结果的完整工作流。主要负责将标准化的原始数据处理为您定义的资产定价模型表。
+## 支持的数据源组
 
-## 核心流程 / Core Workflow
+1. 标准组：
+   - `dfs://instrument_std`.`Instrument`
+   - `dfs://marketdata_std`.`MarketData`
+2. 建模组：
+   - `dfs://ficc_api_pdf_2026`.`std_instrument_bond`
+   - `dfs://ficc_api_pdf_2026`.`std_market_curve`
 
-完成整个工作流需要执行以下脚本，更多细节请查阅相关文档：
+## 脚本清单（按执行顺序）
 
-### 1. 准备输出数据的表结构
-- **用途**: 创建基于原始数据的各种输出结构表。它包括了资产定义（Instrument）、市场数据（MarketData）以及最终得到的定价和风险结果。
-- **脚本**: [`scripts/02_prepare_output_schema.dos`](scripts/02_prepare_output_schema.dos)
-  - 根据输入数据和定价模型建立相应的输出存储。
-- **说明文档**: [`reference/TABLE_SCHEMA_AND_WORKFLOW.md`](reference/TABLE_SCHEMA_AND_WORKFLOW.md)
+- `scripts/01_pricing_data_readiness.dos`
+- `scripts/02_curve_dependency_check.dos`
+- `scripts/03_create_pricing_schema.dos`
+- `scripts/04_run_pricing_engine.dos`
+- `scripts/05_validate_pricing_results.dos`
+- 一键入口：`scripts/00_run_pipeline.dos`
+- 核心模块：`scripts/pricing_engine_module.dos`
+- 报告脚本：`scripts/generate_report.py`
 
-### 2. 运行统一的定价流水线
-- **用途**: 串联之前建立的库表结构，执行统一的计算逻辑和核心函数，产生输出数据并存入指定的分析或展示表中。
-- **脚本**: [`scripts/05_run_unified_pipeline.dos`](scripts/05_run_unified_pipeline.dos)
-  - 调用相关的定价函数和参数设置。具体函数和参数信息参考相关说明文档。
-- **说明文档**: [`reference/TABLE_SCHEMA_AND_WORKFLOW.md`](reference/TABLE_SCHEMA_AND_WORKFLOW.md)
-  - 在相关文档中提供了对应定价函数的说明和调用方法，方便后续调整或独立调用各个计算步骤。
+## 参数（所有步骤可注入）
 
-## 参考文档
-请参阅 [`reference/INTERFACE_CONTRACT.md`](reference/INTERFACE_CONTRACT.md) 获取校验库表所需信息的介绍，以及 [`reference/TABLE_SCHEMA_AND_WORKFLOW.md`](reference/TABLE_SCHEMA_AND_WORKFLOW.md) 以了解各个函数的调用要求。
+- `pricingDate`：估值日，默认 `2026.03.04`
+- `outputDbPath`：结果库，默认 `dfs://ficc_pricing_pipeline`
+- `outputTablePrefix`：结果表前缀，默认 `pricing`
+- `maxBondsPerProfile`：每组最大定价资产数，默认 `200`
+- `isStreaming`：是否流模式（当前实现按批处理执行），默认 `false`
+- `toleranceBp`：验证阈值（bp），默认 `0.05`
+
+## 共享表输出
+
+- `pricing_data_readiness_report`
+- `pricing_data_readiness_missing_assets`
+- `pricing_curve_dependency_report`
+- `pricing_curve_orphan_bonds`
+- `pricing_output_schema_report`
+- `pricing_engine_run_report`
+- `pricing_validation_report`
+
+## 持久化失败明细
+
+- `${outputTablePrefix}_failure_detail`：逐标的失败归因（stage/reason/detail）。
+
+## 使用方式（推荐）
+
+在 DolphinDB 会话中设置参数后执行：
+
+```dolphindb
+pricingDate = 2026.03.04
+outputDbPath = "dfs://ficc_pricing_pipeline"
+outputTablePrefix = "pricing"
+maxBondsPerProfile = 200
+run(".github/skills/ficc_pricing/scripts/00_run_pipeline.dos")
+```
+
+## 说明
+
+- 对于曲线缺失或曲线类型不满足 `IrYieldCurve` 的资产，流程会标记为 `Unpriced(Fail)` 并在共享表中给出原因。
+- 核心循环与 `bondPricer` 调用封装在 `pricing_engine_module.dos`，Agent 仅需传参并调用步骤脚本。
+```

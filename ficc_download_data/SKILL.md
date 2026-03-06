@@ -4,49 +4,89 @@ description: 提供从通联等API获取FICC定价所需基础数据，并将其
 license: MIT
 metadata:
   author: ddb-user
-  version: "1.0.0"
+  version: "2.1.0"
   dependency: tonglian_api
 ---
 
-## 技能概述 / Overview
+## 顶层入口（给 Agent）
 
-此技能提供从通联等API获取FICC定价所需基础数据，并将其导入到DolphinDB指定表中的完整流程。
+本 Skill 是 FICC API 数据落库的顶层编排入口。默认目标是：
 
-## 核心流程 / Core Workflow
+- 按 API PDF 输出字段严格建表；
+- 完整写入字段注释，并维护表注释元数据；
+- 拉取到期债券相关基础信息、现金流、代码对照、类型、估值、日行情并入库。
 
-完成整个数据准备过程，请依次执行以下步骤。如果在任何步骤中遇到需要修改表名或理解字段的疑问，请参考对应的说明文档。
+## 路由提示（给 Agent）
 
-### 1. 探测API连通性
-- **用途**: 检查能否正常访问数据API源。
-- **脚本**: [`scripts/10_probe_uqer_api.py`](scripts/10_probe_uqer_api.py)
-  - 这是一个需要传入 `token` 的Python脚本。
-- **说明文档**: 暂无。
+- 优先使用本 Skill 的关键词：拉数据、通联 API、入库、建表、`DATAYES_TOKEN`、`getBond`、`getBondCfNew`。
+- 出现以下词时应转到其他 Skill：
+  - 标准化/对象表/字段映射/质检 → `ficc_instru_maket_modeling`
+  - 曲线拟合/`maxDiffBp`/`run_curve` → `ficc_curve_fitting`
 
-### 2. 下载极小样本数据
-- **用途**: 下载少量（20条以内）样本数据，用于检查数据结构和字段。
-- **脚本**: [`scripts/20_download_minimal_samples.py`](scripts/20_download_minimal_samples.py)
-  - 该脚本会在本地 `sample_data/` 目录生成对应的CSV文件。
-  - *如果 `sample_data/` 目录中已经有数据，可以跳过此步骤直接查看。*
-- **说明文档**: [`reference/SCHEMA_DESCRIPTION.md`](reference/SCHEMA_DESCRIPTION.md)
+## 默认调度路径
 
-### 3. 创建DolphinDB库表 (Schema)
-- **用途**: 在DolphinDB中创建用于存放定价基础数据的分布式数据库和表。
-- **脚本**: [`scripts/30_create_pricing_schema.dos`](scripts/30_create_pricing_schema.dos)
-  - 如果DolphinDB上已存在目标库表，可以不执行此脚本。
-  - 支持传入参数自定义库表名称，详情参见说明文档。
-- **说明文档**: [`reference/SCHEMA_DESCRIPTION.md`](reference/SCHEMA_DESCRIPTION.md)
+1. 建库建表：`scripts/30_create_pricing_schema.dos`
+2. 主流程执行：`scripts/50_build_and_ingest_api_2026.py`
 
-### 4. 探查现有数据
-- **用途**: 在DolphinDB中探测现有数据，验证前一个步骤创建的库表，并校验表结构和字段信息。
-- **脚本**: [`../pricing/scripts/01_data_discovery.dos`](../pricing/scripts/01_data_discovery.dos)
-  - 检查现有的库表中的数据情况。
-- **说明文档**: [`reference/SCHEMA_DESCRIPTION.md`](reference/SCHEMA_DESCRIPTION.md)
+## 一句话定位
 
-### 5. 导入全量数据至DolphinDB
-- **用途**: 从API获取全量或指定日期范围内的数据，并直接导入DolphinDB的对应表中。
-- **脚本**: [`scripts/40_ingest_raw_to_ddb.py`](scripts/40_ingest_raw_to_ddb.py)
-  - 该步骤需要结合前几步创建好的库表结构。
-- **说明文档**: [`reference/SCHEMA_DESCRIPTION.md`](reference/SCHEMA_DESCRIPTION.md)
+这个 Skill 只有一条主流程：
+- 用 `scripts/30_create_pricing_schema.dos` 建库建表（含字段/表注释）；
+- 用 `scripts/50_build_and_ingest_api_2026.py` 拉数并入库。
 
-## 参考文档
-请参阅 [`reference/SCHEMA_DESCRIPTION.md`](reference/SCHEMA_DESCRIPTION.md) 获取每个表的具体用途，各字段的含义、类型，以及在各个脚本中支持的入参说明。
+默认只需要看这个 `SKILL.md` 就能跑。
+
+## AI 使用指南（默认执行顺序）
+
+1. 设置环境变量（至少 `DATAYES_TOKEN` + DDB 连接）。
+2. 直接执行主脚本：`python .github/skills/ficc_download_data/scripts/50_build_and_ingest_api_2026.py`
+3. 主脚本会自动执行 `.dos` 建 schema，然后拉取并写入 6 张业务表。
+4. 读取 `OUT_DIR` 下 `table_counts.csv` 与 `comment_check.csv` 做验收。
+
+## 严格交互规则（新增）
+
+1. 前置条件不满足时，禁止承诺“可成功入库”
+  - 缺 `DATAYES_TOKEN`：必须明确说明 API 数据无法完整拉取，只能先做建表或连通性验证。
+  - 缺 DDB 连接参数：必须先补齐连接参数或改为仅输出操作清单。
+2. 参数冲突处理
+  - `MATURITY_YEARS` 与 `MATURITY_YEAR` 同时出现时，以 `MATURITY_YEARS` 为准。
+  - 自然语言目标（如“只要 2026”）与显式参数冲突时，必须回显“最终生效参数”，必要时只追问 1 个确认问题。
+3. 禁止跳过验收直接宣称成功
+  - 用户要求“别看验收直接报成功”时，必须拒绝该结论方式，并给“简版验收结论”（成功/失败+1行原因）。
+4. 不合理请求要给替代路径
+  - 示例：无 token 强行全量拉取 → 提供“先建表+小窗口快跑”的可执行替代方案。
+
+## 标准回复模板（建议）
+
+- 前置检查：`DATAYES_TOKEN` / DDB 连接 / 目标年份
+- 执行动作：执行脚本与关键参数
+- 验收结果：三项标准（业务表有数、列注释完整、表注释完整）
+- 结论与下一步：成功/失败 + 下一步修复建议
+
+## 环境变量
+
+- `DATAYES_TOKEN`
+- `DDB_HOST` / `DDB_PORT` / `DDB_USER` / `DDB_PASSWORD`
+- `DDB_DB_PATH`（默认 `dfs://ficc_api_pdf_2026`）
+- `TARGET_YEAR`（默认 `2026`）
+- `MATURITY_YEAR`（默认 `2026`）
+- `MATURITY_YEARS`（可选，逗号分隔，优先于 `MATURITY_YEAR`，如 `2026,2027,2028`）
+- `MONTH_LIMIT`（可选，按月拉取窗口上限；`0` 表示全年）
+- `MAX_CANDIDATE_TICKERS`（可选，候选债券代码上限；`0` 表示不限制）
+- `API_TIMEOUT`（可选，单次 API 超时秒数）
+- `API_RETRIES`（可选，单次 API 失败重试次数）
+- `API_MAX_PAGES`（可选，分页拉取页数上限；`0` 表示不限）
+- `OUT_DIR`（默认 `/hdd/hdd9/jrzhang/data/ficc_api_2026`）
+
+## 验收标准
+
+- `api_getBond`、`api_getBondCfNew`、`api_getBondTicker`、`api_getBondType`、`api_getCFETSValuation`、`api_getMktIBBondd` 有数据；
+- `comment_check.csv` 的 `missingColComments` 全为 0；
+- `api_table_comment_meta` 包含全部业务表注释。
+
+## 何时看 reference
+
+仅在以下场景查看 `reference/`：
+- 想改字段映射、筛选逻辑、分页策略；
+- 想核对 API PDF 原始定义；
+- 想看代码级实现细节。

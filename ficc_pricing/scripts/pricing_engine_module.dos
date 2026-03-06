@@ -1,0 +1,54 @@
+// pricing_engine_module.dos
+// 核心定价模块函数：只在 04_run_pricing_engine.dos 中调用
+
+def fpCurveByInstrumentId(id){
+    sid = string(id)
+    tok = split(sid, ".")
+    if(size(tok)>=2) return "PRICE_"+tok[0]+"_"+tok[1]
+    return "PRICE_"+sid
+}
+
+def fpParseCurveFromSerialized(row, pricingDate){
+    dts = temporalParse(split(string(row["dates"]), ","), "yyyy.MM.dd")
+    vals = double(split(string(row["values"]), ","))
+
+    c = dict(STRING, ANY)
+    c["mktDataType"] = "Curve"
+    c["curveType"] = "IrYieldCurve"
+    c["referenceDate"] = pricingDate
+    c["dayCountConvention"] = iif(isValid(row["dayCountConvention"]) && string(row["dayCountConvention"])!="", string(row["dayCountConvention"]), "ActualActualISDA")
+    c["compounding"] = iif(isValid(row["compounding"]) && string(row["compounding"])!="", string(row["compounding"]), "Compounded")
+    c["frequency"] = iif(isValid(row["frequency"]) && string(row["frequency"])!="", string(row["frequency"]), "Annual")
+    c["interpMethod"] = iif(isValid(row["interpMethod"]) && string(row["interpMethod"])!="", string(row["interpMethod"]), "Linear")
+    c["extrapMethod"] = iif(isValid(row["extrapMethod"]) && string(row["extrapMethod"])!="", string(row["extrapMethod"]), "Flat")
+    c["curveName"] = string(row["curveName"])
+    c["currency"] = iif(isValid(row["currency"]) && string(row["currency"])!="", string(row["currency"]), "CNY")
+    c["dates"] = dts
+    c["values"] = vals
+    return parseMktData(c)
+}
+
+def fpBuildInstrumentFromStdInstrument(d, curveName){
+    x = d.copy()
+    x["discountCurve"] = curveName
+    return parseInstrument(x)
+}
+
+def fpBuildInstrumentFromNormalized(row, curveName){
+    d = dict(STRING, ANY)
+    d["productType"] = "Cash"
+    d["assetType"] = "Bond"
+    d["bondType"] = iif(isValid(row["bondType"]) && string(row["bondType"])!="", string(row["bondType"]), "FixedRateBond")
+    d["instrumentId"] = string(row["instrumentId"])
+    d["start"] = row["start"]
+    d["maturity"] = row["maturity"]
+    d["issuePrice"] = iif(isValid(row["issuePrice"]), double(row["issuePrice"]), 100.0)
+    d["coupon"] = iif(isValid(row["coupon"]), double(row["coupon"]), 0.02)
+    d["frequency"] = iif(isValid(row["frequency"]) && string(row["frequency"])!="", string(row["frequency"]), "Annual")
+    d["dayCountConvention"] = iif(isValid(row["dayCountConvention"]) && string(row["dayCountConvention"])!="", string(row["dayCountConvention"]), "ActualActualISDA")
+    d["currency"] = iif(isValid(row["currency"]) && string(row["currency"])!="", string(row["currency"]), "CNY")
+    d["subType"] = iif(isValid(row["subType"]) && string(row["subType"])!="", string(row["subType"]), "CORP_BOND")
+    d["discountCurve"] = curveName
+    if(isValid(row["spreadCurve"]) && string(row["spreadCurve"])!="") d["spreadCurve"] = string(row["spreadCurve"])
+    return parseInstrument(d)
+}

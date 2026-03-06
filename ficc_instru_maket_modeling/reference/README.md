@@ -1,65 +1,27 @@
-# FICC Instrument / MarketData 建模参考
+# FICC 债券标准化参考
 
-本目录解决的问题不是“改列名”，而是“把原始数据语义转换成定价引擎理解的对象语义”。
+本技能聚焦债券 `Instrument` 与 `IrYieldCurve` 两张标准表，按 `parseInstrument` 与 `parseMktData` 字段契约建模。
 
-在 DolphinDB 里：
-- `parseInstrument` 期待的是“资产定义字典”
-- `parseMktData` 期待的是“市场数据字典”
+当前支持两类来源：
 
-如果 mapping 只做字段搬运，不做语义校准（枚举、单位、日期类型），就会出现 parse 失败或定价偏差。
+- 债券 API 原始库：`dfs://ficc_api_pdf_2026`
+- 上清所曲线原始库：`dfs://ficc_curve_raw_2026`
 
----
+## 文件说明
 
-## 文档结构
+- `STANDARD_DICTIONARY.md`
+  - 中文数据字典（必填/可选/条件必填 + 典型源字段）
 
-- `parseinstru.md`
-  - 讲清楚 Instrument mapping 的“为什么”和“怎么改”。
-- `parsemarketdata.md`
-  - 讲清楚 MarketData mapping 的“为什么”和“怎么改”。
-- `instrument_standardize_template.dos`
-  - 本地（同节点）版本的 Instrument 标准化模板。
-- `marketdata_standardize_template.dos`
-  - 本地（同节点）版本的 MarketData 标准化模板。
+## 执行脚本（位于 scripts 目录）
 
-> 跨节点拉数（例如 8671 -> 7731）已拆分到单独技能：
-> [`../../ddb-cross-node-sync/SKILL.md`](../../ddb-cross-node-sync/SKILL.md)
+1. `01_create_standard_schema.dos`：建标准表与注释
+2. `02_probe_source_db.dos`：探查 `dfs://ficc_api_pdf_2026` 与 `dfs://ficc_curve_raw_2026` 关键表结构
+3. `03_build_field_mapping.dos`：构建源字段到标准字段映射表
+4. `04_transform_to_standard.dos`：执行转换写入标准表
+5. `05_quality_check.dos`：输出行数、空值、向量长度等质检结论
 
----
+## 验收口径
 
-## 你最需要先理解的 3 件事
-
-### 1) mapping 的本质是“契约对齐”
-
-例如：
-- 原表里 `couponTypeCD=ZERO`，并不只是文本 `ZERO`，它表达“贴现债”，必须映射成 `bondType=DiscountBond`。
-- `yieldSpread=2.35` 多数情况下代表 2.35%，而曲线输入 `values` 要的是小数 0.0235。
-
-### 2) parse 函数对类型非常严格
-
-- `start/maturity/referenceDate/dates` 不要依赖隐式转换，统一显式 `date(...)`。
-- `dates` 必须是 DATE 向量，不能混入 NULL 或字符串。
-
-### 3) 失败样本是最重要反馈
-
-每次先跑小样本（例如最新 1-3 天 + 前 200 条），看 fail 表：
-- 是枚举不认识？补映射。
-- 是单位错？补 `/100`。
-- 是类型错？补 `date()`/`double()`。
-
----
-
-## 推荐执行顺序
-
-1. 阅读 `parseinstru.md` 与 `parsemarketdata.md` 的“字段语义表”。
-2. 在 `.dos` 模板顶部替换库名、表名、字段名、字典映射。
-3. 先小样本执行，确认 fail 数量可解释。
-4. 全量跑并产出成功/失败统计。
-
----
-
-## 验收标准
-
-至少输出以下检查结果：
-- Instrument：总数、按 `instrumentType` 分布、失败 TopN。
-- MarketData：总数、按 `sourceTable` 分布、失败 TopN。
-- 脚本可重复执行（参数化，不依赖手工中间状态）。
+- `std_instrument_bond` 与 `std_market_curve` 有数据；
+- `std_field_mapping` 覆盖两张标准表字段映射；
+- `std_qc_summary` 指标可读，可定位 API 曲线与 curve_raw 曲线的缺失字段或异常值。

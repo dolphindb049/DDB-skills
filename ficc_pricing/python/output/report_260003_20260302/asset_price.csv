@@ -1,2 +1,0 @@
-pricingDate,instrumentId,bondType,start,maturity,coupon,issuePrice,modelPrice,marketProxyPrice,priceDiff,diffBp,modelVsIssue
-2026-03-02,260003.OTC,FixedRateBond,2026-01-25,2031-01-25,0.0154,100.0,99.6563693004976,99.6563693004976,0.0,0.0,-0.34363069950239833

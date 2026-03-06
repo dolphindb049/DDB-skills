@@ -1,0 +1,74 @@
+rawDbPath = "dfs://ficc_api_pdf_2026"
+curveRawDbPath = "dfs://ficc_curve_raw_2026"
+instDbPath = "dfs://instrument_std"
+mdDbPath = "dfs://marketdata_std"
+
+if(!existsDatabase(instDbPath)){
+    database(instDbPath, VALUE, [`DiscountBond, `FixedRateBond, `ZeroCouponBond, `Other], engine="TSDB")
+}
+
+if(!existsDatabase(mdDbPath)){
+    database(mdDbPath, VALUE, 2022.01.01..2035.12.31, engine="TSDB")
+}
+
+if(existsTable(rawDbPath, "std_field_mapping")){
+    dropTable(database(rawDbPath), `std_field_mapping)
+}
+if(existsTable(rawDbPath, "std_field_mapping_instrument")){
+    dropTable(database(rawDbPath), `std_field_mapping_instrument)
+}
+CREATE TABLE "dfs://ficc_api_pdf_2026"."std_field_mapping_instrument" (
+    mappingId STRING [comment="映射编号"],
+    sourceDbPath STRING [comment="来源库路径"],
+    sourceTable STRING [comment="来源表名"],
+    targetDbPath STRING [comment="目标库路径"],
+    targetTable STRING [comment="目标表名"],
+    targetField STRING [comment="目标字段"],
+    fieldOrder INT [comment="字段顺序（用于生成select）"],
+    isObjectField BOOL [comment="是否对象字段（parseInstrument/parseMktData）"],
+    mappingCode STRING [comment="映射逻辑代码片段（DolphinDB表达式）"],
+    requiredLevel STRING [comment="必填级别：必填/条件必填/可选"],
+    comment STRING [comment="字段说明"]
+)
+PARTITIONED BY targetTable
+comment = "Instrument 标准化字段映射元数据（可执行代码片段）"
+
+if(existsTable(curveRawDbPath, "std_field_mapping_marketdata")){
+    dropTable(database(curveRawDbPath), `std_field_mapping_marketdata)
+}
+CREATE TABLE "dfs://ficc_curve_raw_2026"."std_field_mapping_marketdata" (
+    mappingId STRING [comment="映射编号"],
+    sourceDbPath STRING [comment="来源库路径"],
+    sourceTable STRING [comment="来源表名"],
+    targetDbPath STRING [comment="目标库路径"],
+    targetTable STRING [comment="目标表名"],
+    targetField STRING [comment="目标字段"],
+    fieldOrder INT [comment="字段顺序（用于生成select）"],
+    isObjectField BOOL [comment="是否对象字段（parseInstrument/parseMktData）"],
+    mappingCode STRING [comment="映射逻辑代码片段（DolphinDB表达式）"],
+    requiredLevel STRING [comment="必填级别：必填/条件必填/可选"],
+    comment STRING [comment="字段说明"]
+)
+PARTITIONED BY targetTable
+comment = "MarketData 标准化字段映射元数据（可执行代码片段）"
+
+
+if(existsTable(instDbPath, "Instrument")){
+    dropTable(database(instDbPath), `Instrument)
+}
+dbInst = database(instDbPath)
+tInst = table(1:0,
+    `bondType`productType`assetType`version`instrumentId`start`maturity`issuePrice`coupon`calendar`frequency`dayCountConvention`subType`creditRating`discountCurve`issuer`currency`nominal`instrument`isRegular`instrumentName`listingDate`market`sourceDbPath`sourceTable`updateTime,
+    [STRING,STRING,STRING,INT,STRING,DATE,DATE,DOUBLE,DOUBLE,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,DOUBLE,INSTRUMENT,BOOL,STRING,DATE,STRING,STRING,STRING,TIMESTAMP])
+dbInst.createPartitionedTable(tInst, `Instrument, `bondType, sortColumns=`bondType`instrumentId`updateTime)
+
+if(existsTable(mdDbPath, "MarketData")){
+    dropTable(database(mdDbPath), `MarketData)
+}
+dbMd = database(mdDbPath)
+tMd = table(1:0,
+    `referenceDate`name`mktDataType`curveType`dayCountConvention`compounding`frequency`interpMethod`extrapMethod`curveName`currency`nodeDates`nodeValues`data`sourceDbPath`sourceTable`updateTime,
+    [DATE,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,MKTDATA,STRING,STRING,TIMESTAMP])
+dbMd.createPartitionedTable(tMd, `MarketData, `referenceDate, sortColumns=`referenceDate`name`updateTime)
+
+print("[OK] 目标TSDB表与映射表已就绪")

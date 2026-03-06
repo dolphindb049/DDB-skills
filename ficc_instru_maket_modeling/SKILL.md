@@ -1,55 +1,92 @@
-```skill
 ---
 name: ficc_instru_maket_modeling
-description: 构建 FICC 定价所需的资产和市场数据结构，构建字段映射过程，是数据准备到定价计算的中间过程，支持用户去按照定价模型的需求来构建和调整数据结构。
+description: 基于 parseInstrument / parseMktData，把债券数据标准化写入 TSDB 的 Instrument / MarketData 对象表，并输出映射、探查、质检结果。
 license: MIT
 metadata:
   author: ddb-user
-  version: "1.0.0"
+  version: "3.1.0"
 ---
 
-## 技能概述 / Overview
+## 目标
 
-这个技能用于把“原始资产表 + 原始行情表”标准化成定价引擎可直接消费的两张核心表：
+本技能做“债券 + 曲线原始数据”两类标准化，并直接写入可建模对象表：
 
-- `Instrument(instrumentId, instrumentType, instrument, ...)`
-- `MarketData(referenceDate, name, mktDataType, data, ...)`
+- 资产对象表：`dfs://instrument_std`.`Instrument`
+  - 关键列：`instrument`（类型 `INSTRUMENT`，由 `parseInstrument` 解析）
+- 市场对象表：`dfs://marketdata_std`.`MarketData`
+  - 关键列：`data`（类型 `MKTDATA`，由 `parseMktData` 解析）
 
-重点不是“机械字段改名”，而是把业务含义对齐到 `parseInstrument` / `parseMktData` 的输入契约。
+输入原始库：
 
-## 什么时候用
+- 债券 API 原始库：`dfs://ficc_api_pdf_2026`
+- 曲线原始库：`dfs://ficc_curve_raw_2026`
 
-- 你已有债券/曲线原始表，但列名和枚举不符合 DolphinDB 定价接口。
-- 你要在入库前先做统一清洗，保证后续 `instrumentPricer` / `portfolioPricer` 稳定运行。
-- 你希望把 mapping 逻辑文档化，便于后续换数据源时快速复用。
+## 路由提示（给 Agent）
 
-## 核心流程
+- 优先使用本 Skill 的关键词：标准化、`parseInstrument`、`parseMktData`、`Instrument`、`MarketData`、字段映射、质检、曲线原始表。
+- 出现以下词时应转到曲线拟合 Skill：`refDate`、`curveNameKeyword`、`method`、曲线拟合、`maxDiffBp`。
 
-### 1) 先定义目标契约（标准表 + parse 入参）
-- 先看说明文档，明确哪些字段是“必填且有语义约束”。
-- 参考文档：[`reference/parseinstru.md`](reference/parseinstru.md)、[`reference/parsemarketdata.md`](reference/parsemarketdata.md)
+## 核心约束
 
-### 2) 按原始表做 mapping（必须人工确认）
-- 枚举映射：例如 `couponTypeCD -> bondType`，不是字符串替换，而是产品分类规则。
-- 数值映射：例如收益率是否从百分比转小数（`/100`）。
-- 时间映射：`start/maturity/referenceDate/dates` 必须是 DATE 类型。
+- 字段定义以官方函数文档为准：`parseInstrument`、`parseMktData`。
+- 只保留债券场景必需字段，删除冗余模板逻辑。
+- 注释元数据遵循原始 API 表已有逻辑，不再维护额外注释元数据表。
 
-### 3) 执行模板并看失败样本
-- Instrument 模板：[`reference/instrument_standardize_template.dos`](reference/instrument_standardize_template.dos)
-- MarketData 模板：[`reference/marketdata_standardize_template.dos`](reference/marketdata_standardize_template.dos)
-- 每次先跑小样本，查看 fail 表，再补映射。
+## 严格流程规则（新增）
 
-## 和“跨节点同步”技能的边界
+1. 禁止跳过关键步骤：
+   - `scripts/02_probe_source_db.dos`（源库探查）不可跳过；
+   - `scripts/03_build_field_mapping.dos`（字段映射）不可跳过；
+   - `scripts/05_quality_check.dos`（质检）不可跳过。
+2. 用户要求“直接跑、不要质检”时：
+   - 必须拒绝跳过，并给“最小化执行方案”（压缩耗时但不删步骤）。
+3. 非债券场景边界：
+   - 对股票期权、外汇衍生品等请求，必须声明不在本 Skill 覆盖范围，并提供迁移建议。
+4. 输出必须可复核：
+   - 结果中至少包含“源库探查摘要 + 映射完成状态 + 质检结论”。
 
-本技能聚焦“字段语义标准化”。
-如果你还需要 `8671 -> 7731` 这类跨节点拉取，请配合技能：
+## 执行步骤（7步）
 
-- [`../ddb-cross-node-sync/SKILL.md`](../ddb-cross-node-sync/SKILL.md)
+1. 确认中文数据字典：`reference/STANDARD_DICTIONARY.md`
+2. 建标准表：`scripts/01_create_standard_schema.dos`
+3. 探查源库：`scripts/02_probe_source_db.dos`
+4. 构建字段映射表：`scripts/03_build_field_mapping.dos`
+5. 执行转换：`scripts/04_transform_to_standard.dos`
+6. 做数据质检：`scripts/05_quality_check.dos`
+7. 汇总结果：读取 `std_field_mapping`，以及共享变量 `std_probe_report` / `std_qc_summary`
 
-## 快速入口
+## 建议调用顺序
 
-- 流程总览：[`reference/README.md`](reference/README.md)
-- Instrument 详解：[`reference/parseinstru.md`](reference/parseinstru.md)
-- MarketData 详解：[`reference/parsemarketdata.md`](reference/parsemarketdata.md)
-
+```dos
+run("scripts/01_create_standard_schema.dos")
+run("scripts/02_probe_source_db.dos")
+run("scripts/03_build_field_mapping.dos")
+run("scripts/04_transform_to_standard.dos")
+run("scripts/05_quality_check.dos")
 ```
+
+## 输出产物
+
+- TSDB资产对象表：`dfs://instrument_std`.`Instrument`
+- TSDB市场对象表：`dfs://marketdata_std`.`MarketData`（包含 API 曲线与 `curve_shch_yield_raw` 转换曲线）
+- 当批次共享临时表：`std_instrument_bond`、`std_market_curve`
+- 字段映射表（持久化）：`dfs://ficc_api_pdf_2026`.`std_field_mapping`
+- 源库探查结果（共享变量）：`std_probe_report`
+- 质检汇总（共享变量）：`std_qc_summary`
+
+## 共享变量查看
+
+```dos
+select top 100 * from std_instrument_bond
+select top 100 * from std_market_curve
+select top 100 * from std_probe_report
+select * from std_qc_summary order by checkName, tableName, metric
+```
+
+## 与曲线原始入库 Skill 的衔接
+
+若要启用曲线原始数据标准化，需先执行：
+
+- `.github/skills/ficc_curve_fitting_import/scripts/50_build_and_ingest_curve_raw_2026.py`
+
+并保证 `dfs://ficc_curve_raw_2026`.`curve_shch_yield_raw` 已有数据。

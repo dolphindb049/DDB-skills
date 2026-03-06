@@ -1,164 +1,164 @@
-// Data Pricing Skill - Step 1: 创建数据库与全量表结构（含注释）
-// 用法（execute-dlang）：
-// uv run .github/skills/execute-dlang/scripts/ddb_runner/execute.py .github/skills/prepare_data_for_pricing/scripts/30_create_pricing_schema.dos --host 127.0.0.1 --port 8848 --user admin --password 123456
+// FICC API 2026 Skill - Step 1: 建库建表（schema）
+// 说明：
+// 1) 该文件会被 Python 主流程读取并执行；
+// 2) __DB_PATH__ 占位符会在运行时替换为 DDB_DB_PATH；
+// 3) 为保证重跑幂等，默认先 drop 再 create。
 
-dbPath = "dfs://data_pricing_skill"
-if(!existsDatabase(dbPath)){
-    database(dbPath, VALUE, 2025.01.01..2027.12.31)
+if(existsDatabase("__DB_PATH__")){
+    dropDatabase("__DB_PATH__")
 }
+database("__DB_PATH__", HASH, [SYMBOL, 31])
 
-// ========== 原始数据表 ==========
-if(!existsTable(dbPath, "raw_bond_info")){
-CREATE TABLE "dfs://data_pricing_skill"."raw_bond_info" (
-    secID SYMBOL [comment="债券证券ID（含市场后缀）"],
-    ticker SYMBOL [comment="债券交易代码"],
-    exchangeCD SYMBOL [comment="交易市场代码"],
+CREATE TABLE "__DB_PATH__"."api_getBond" (
+    secID STRING [comment="证券ID"],
+    ticker STRING [comment="交易代码"],
+    exchangeCD STRING [comment="交易市场编码"],
+    bondID STRING [comment="债券ID"],
+    secFullName STRING [comment="债券全称"],
     secShortName STRING [comment="债券简称"],
+    listStatusCD STRING [comment="上市状态"],
+    partyID LONG [comment="发行人ID"],
     issuer STRING [comment="发行人"],
-    couponTypeCD SYMBOL [comment="票息类型代码"],
-    cpnFreqCD SYMBOL [comment="付息频率代码"],
-    paymentCD SYMBOL [comment="付息方式代码"],
-    coupon DOUBLE [comment="票面利率（百分数）"],
+    totalSize DOUBLE [comment="累计发行总额(亿元)"],
+    remainSize DOUBLE [comment="剩余规模(亿元)"],
+    currencyCD STRING [comment="货币代码"],
+    couponTypeCD STRING [comment="计息方式"],
+    cpnFreqCD STRING [comment="付息频率"],
+    paymentCD STRING [comment="兑付方式"],
+    coupon DOUBLE [comment="票面年利率(%)"],
+    par DOUBLE [comment="债券面值(元)"],
+    hybridCD STRING [comment="混合方式"],
+    typeID STRING [comment="债券分类ID"],
+    typeName STRING [comment="分类名称"],
+    publishDate DATE [comment="信息发布日期"],
+    listDate DATE [comment="上市日期"],
+    delistDate DATE [comment="退市日期"],
+    actMaturityDate DATE [comment="实际到期日"],
     firstAccrDate DATE [comment="起息日"],
     maturityDate DATE [comment="到期日"],
-    typeName STRING [comment="债券类型名称"],
-    typeID SYMBOL [comment="债券类型ID"],
-    listStatusCD SYMBOL [comment="上市状态代码"]
+    firstRedempDate DATE [comment="首次兑付日"],
+    minCoupon DOUBLE [comment="保底利率(%)"],
+    frnRefRateCD STRING [comment="浮息债参考利率指标"],
+    frnCurrBmkRate DOUBLE [comment="浮息债首次参考利率(%)"],
+    frnMargin DOUBLE [comment="浮息债利差(%)"],
+    privPlacemFlag SHORT [comment="非公开定向标志"],
+    issueInvNum SHORT [comment="初始定向投资人数量"],
+    privInvNum SHORT [comment="定向投资人数量"],
+    isOption INT [comment="是否含权"],
+    absIssuerID LONG [comment="发起机构ID"],
+    absIssuer STRING [comment="发起机构"],
+    absLevelCD STRING [comment="分层级别"],
+    absLevelRatio DOUBLE [comment="规模分层占比(%)"],
+    absCouponCap STRING [comment="利率上限说明"]
 )
-PARTITIONED BY maturityDate
-comment = "通联 getBond 原始债券信息样本"
-}
+PARTITIONED BY secID
+comment = "getBond-债券基本信息输出参数表"
 
-if(!existsTable(dbPath, "raw_cfets_valuation")){
-CREATE TABLE "dfs://data_pricing_skill"."raw_cfets_valuation" (
-    tradeDate DATE [comment="估值日期"],
-    secID SYMBOL [comment="债券证券ID"],
-    ticker SYMBOL [comment="债券交易代码"],
+CREATE TABLE "__DB_PATH__"."api_getBondCfNew" (
+    secID STRING [comment="证券编码"],
+    ticker STRING [comment="交易代码"],
+    bondID STRING [comment="债券ID"],
+    exchangeCD STRING [comment="交易市场代码"],
     secShortName STRING [comment="债券简称"],
+    cashTypeCD STRING [comment="现金流类型"],
+    intePeriod INT [comment="计息周期"],
+    perAccrDate DATE [comment="本周期计息起始日"],
+    perAccrEndDate DATE [comment="本周期计息截止日"],
+    paymentDate DATE [comment="现金流日期"],
+    recordDate DATE [comment="债权登记日"],
+    exDivDate DATE [comment="除权除息日"],
+    interest DOUBLE [comment="每百元面额付息"],
+    payment DOUBLE [comment="每百元面额兑付本金"],
+    totalSize DOUBLE [comment="债券总额"]
+)
+PARTITIONED BY secID
+comment = "getBondCfNew-债券现金流-新输出参数表"
+
+CREATE TABLE "__DB_PATH__"."api_getBondTicker" (
+    bondID STRING [comment="债券ID"],
+    secID STRING [comment="证券编码"],
+    ticker STRING [comment="交易代码"],
+    exchangeCD STRING [comment="交易市场代码"],
+    secShortName STRING [comment="证券简称"],
+    secFullName STRING [comment="证券全称"]
+)
+PARTITIONED BY secID
+comment = "getBondTicker-债券代码对照表输出参数表"
+
+CREATE TABLE "__DB_PATH__"."api_getBondType" (
+    secID STRING [comment="证券内部编码"],
+    ticker STRING [comment="交易代码"],
+    exchangeCD STRING [comment="交易市场编码"],
+    bondID STRING [comment="债券ID"],
+    bondShortName STRING [comment="债券简称"],
+    bondFullName STRING [comment="债券全称"],
+    typeID STRING [comment="债券分类ID"],
+    typeName STRING [comment="债券分类名称"]
+)
+PARTITIONED BY secID
+comment = "getBondType-债券类型输出参数表"
+
+CREATE TABLE "__DB_PATH__"."api_getCFETSValuation" (
+    secID STRING [comment="证券内部ID"],
+    ticker STRING [comment="债券代码"],
+    secShortName STRING [comment="债券简称"],
+    tradeDate DATE [comment="估值日期"],
     bondType STRING [comment="债券类型"],
-    grossPx DOUBLE [comment="全价估值"],
-    netPx DOUBLE [comment="净价估值"],
-    ytm DOUBLE [comment="到期收益率（百分数）"],
+    grossPx DOUBLE [comment="估值全价"],
+    netPx DOUBLE [comment="估值净价"],
+    ytm DOUBLE [comment="估值收益率"],
     couponType STRING [comment="息票类型"],
-    modifiedDuration DOUBLE [comment="修正久期"],
-    convexity DOUBLE [comment="凸性"],
-    baseRate DOUBLE [comment="基准利率"]
+    modifiedDuration DOUBLE [comment="估值修正久期"],
+    convexity DOUBLE [comment="估值凸性"],
+    baseRate DOUBLE [comment="估值基点价值"],
+    spreadDuration DOUBLE [comment="估值利差久期"],
+    spreadConvexity DOUBLE [comment="估值利差凸性"],
+    spotDuration DOUBLE [comment="估值利率久期"],
+    spotConvexity DOUBLE [comment="估值利率凸性"]
 )
-PARTITIONED BY tradeDate
-comment = "通联 getCFETSValuation 原始估值样本"
-}
+PARTITIONED BY secID
+comment = "getCFETSValuation-中国外汇交易中心估值输出参数表"
 
-if(!existsTable(dbPath, "raw_irs_curve")){
-CREATE TABLE "dfs://data_pricing_skill"."raw_irs_curve" (
-    tradeDate DATE [comment="曲线日期"],
-    curveDate DATE [comment="期限点对应日期"],
-    curveName STRING [comment="曲线名称"],
-    curveCD SYMBOL [comment="曲线代码"],
-    curveTypeCD SYMBOL [comment="曲线类型代码"],
-    priceTypeCD SYMBOL [comment="报价类型代码"],
-    maturity STRING [comment="期限点，如6M/1Y"],
-    curveYield DOUBLE [comment="收益率（百分数）"]
-)
-PARTITIONED BY tradeDate
-comment = "通联 getBondCmIrsCurve 原始IRS曲线点"
-}
-
-if(!existsTable(dbPath, "raw_ib_bond_market")){
-CREATE TABLE "dfs://data_pricing_skill"."raw_ib_bond_market" (
+CREATE TABLE "__DB_PATH__"."api_getMktIBBondd" (
+    secID STRING [comment="证券编码"],
+    ticker STRING [comment="交易代码"],
+    secShortName STRING [comment="债券简称"],
+    exchangeCD STRING [comment="交易市场编码"],
     tradeDate DATE [comment="交易日期"],
-    secID SYMBOL [comment="债券证券ID"],
-    ticker SYMBOL [comment="债券交易代码"],
-    secShortName STRING [comment="债券简称"],
-    exchangeCD SYMBOL [comment="交易市场"],
-    closePrice DOUBLE [comment="收盘价"],
-    wAvgPrice DOUBLE [comment="加权均价"],
-    preCloseYield DOUBLE [comment="前收盘收益率"],
-    wAvgYield DOUBLE [comment="加权平均收益率"],
+    preClosePrice DOUBLE [comment="前收盘净价"],
+    preWAVGPrice DOUBLE [comment="前加权平均净价"],
+    openPrice DOUBLE [comment="开盘净价"],
+    highestPrice DOUBLE [comment="最高净价"],
+    lowestPrice DOUBLE [comment="最低净价"],
+    closePrice DOUBLE [comment="收盘净价"],
+    wAvgPrice DOUBLE [comment="加权平均净价"],
+    chgPct DOUBLE [comment="净价涨跌幅"],
     turnoverVol DOUBLE [comment="成交量"],
-    turnoverValue DOUBLE [comment="成交额"]
+    preCloseYield DOUBLE [comment="前收盘收益率"],
+    preWAVGYield DOUBLE [comment="前加权平均收益率"],
+    openYield DOUBLE [comment="开盘收益率"],
+    highestYield DOUBLE [comment="最高收益率"],
+    lowestYield DOUBLE [comment="最低收益率"],
+    closeYield DOUBLE [comment="收盘收益率"],
+    wAvgYield DOUBLE [comment="加权平均收益率"],
+    grossClosePrice DOUBLE [comment="收盘价(全价)"],
+    accrInterest DOUBLE [comment="应计利息"],
+    YTM DOUBLE [comment="到期收益率"]
 )
-PARTITIONED BY tradeDate
-comment = "通联 getMktIBBondd 原始市场行情"
-}
+PARTITIONED BY secID
+comment = "getMktIBBondd-银行间现券日行情输出参数表"
 
-if(!existsTable(dbPath, "case2_bond_basket")){
-CREATE TABLE "dfs://data_pricing_skill"."case2_bond_basket" (
-    tradeDate DATE [comment="估值日期"],
-    secID SYMBOL [comment="债券证券ID"],
-    ticker SYMBOL [comment="债券交易代码"],
-    secShortName STRING [comment="债券简称"],
-    firstAccrDate DATE [comment="起息日"],
-    maturityDate DATE [comment="到期日"],
-    coupon DOUBLE [comment="票面利率（百分数）"],
-    cpnFreqCD SYMBOL [comment="付息频率代码"],
-    couponTypeCD SYMBOL [comment="票息类型代码"],
-    typeName STRING [comment="债券类型名称"],
-    ytm DOUBLE [comment="到期收益率（百分数）"],
-    netPx DOUBLE [comment="净价估值"]
+CREATE TABLE "__DB_PATH__"."api_table_comment_meta" (
+    tableName STRING [comment="表名"],
+    tableComment STRING [comment="表注释"]
 )
-PARTITIONED BY tradeDate
-comment = "案例2用样本券篮子（用于bondYieldCurveBuilder）"
-}
+PARTITIONED BY tableName
+comment = "API表注释元数据"
 
-// ========== 中间/结果表 ==========
-if(!existsTable(dbPath, "instrument_cache")){
-CREATE TABLE "dfs://data_pricing_skill"."instrument_cache" (
-    tradeDate DATE [comment="构建日期"],
-    secID SYMBOL [comment="债券证券ID"],
-    ticker SYMBOL [comment="债券交易代码"],
-    instrumentName STRING [comment="债券简称"],
-    bondType STRING [comment="债券产品类型"],
-    frequency STRING [comment="付息频率（DDB标准）"],
-    instrumentJson STRING [comment="债券产品对象(JSON)"]
+meta = table(
+    ["api_getBond","api_getBondCfNew","api_getBondTicker","api_getBondType","api_getCFETSValuation","api_getMktIBBondd"] as tableName,
+    ["getBond-债券基本信息输出参数表","getBondCfNew-债券现金流-新输出参数表","getBondTicker-债券代码对照表输出参数表","getBondType-债券类型输出参数表","getCFETSValuation-中国外汇交易中心估值输出参数表","getMktIBBondd-银行间现券日行情输出参数表"] as tableComment
 )
-PARTITIONED BY tradeDate
-comment = "定价使用的债券产品缓存"
-}
-
-if(!existsTable(dbPath, "curve_cache")){
-CREATE TABLE "dfs://data_pricing_skill"."curve_cache" (
-    tradeDate DATE [comment="曲线参考日期"],
-    curveName STRING [comment="曲线名称"],
-    curveType STRING [comment="曲线类型"],
-    buildMethod STRING [comment="曲线构建方法"],
-    curveJson STRING [comment="曲线对象(JSON)"]
-)
-PARTITIONED BY tradeDate
-comment = "定价使用的曲线对象缓存"
-}
-
-if(!existsTable(dbPath, "pricing_result_case1")){
-CREATE TABLE "dfs://data_pricing_skill"."pricing_result_case1" (
-    pricingDate DATE [comment="定价日期"],
-    ticker SYMBOL [comment="债券交易代码"],
-    secID SYMBOL [comment="债券证券ID"],
-    curveName STRING [comment="贴现曲线名称"],
-    npv DOUBLE [comment="模型净现值"],
-    discountCurveDelta DOUBLE [comment="贴现曲线Delta"],
-    discountCurveGamma DOUBLE [comment="贴现曲线Gamma"],
-    discountCurveKeyRateDuration STRING [comment="关键利率久期(JSON)"],
-    cfetsNetPx DOUBLE [comment="CFETS净价"],
-    cfetsYtm DOUBLE [comment="CFETS到期收益率（小数）"]
-)
-PARTITIONED BY pricingDate
-comment = "案例1：IRS曲线+bondPricer结果"
-}
-
-if(!existsTable(dbPath, "pricing_result_case2")){
-CREATE TABLE "dfs://data_pricing_skill"."pricing_result_case2" (
-    pricingDate DATE [comment="定价日期"],
-    ticker SYMBOL [comment="债券交易代码"],
-    secID SYMBOL [comment="债券证券ID"],
-    curveName STRING [comment="反推出的收益率曲线名称"],
-    curveMethod STRING [comment="曲线构建方法"],
-    quoteYtm DOUBLE [comment="输入报价YTM（小数）"],
-    npv DOUBLE [comment="模型净现值"],
-    modelYtm DOUBLE [comment="模型反解YTM（小数）"],
-    cfetsNetPx DOUBLE [comment="CFETS净价"],
-    cfetsYtm DOUBLE [comment="CFETS到期收益率（小数）"]
-)
-PARTITIONED BY pricingDate
-comment = "案例2：bondYieldCurveBuilder反推曲线+定价结果"
-}
+loadTable("__DB_PATH__", "api_table_comment_meta").append!(meta)
 
 "schema_done"

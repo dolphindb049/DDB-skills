@@ -1,4 +1,21 @@
 #!/home/jrzhang/miniconda3/bin/python3
+"""
+FICC API 数据下载与入库（可复用版）
+
+设计目标：
+1. 严格按 PDF 输出参数定义建表，字段级 comment 与文档一致；
+2. 一次执行完成：建库建表 -> 下载数据 -> 入库 -> 导出 -> 行数与注释校验；
+3. 通过环境变量参数化年份与连接信息，便于后续 agent 复用调度。
+
+关键环境变量：
+- DATAYES_TOKEN: API Token
+- DDB_HOST / DDB_PORT / DDB_USER / DDB_PASSWORD: DolphinDB 连接参数
+- DDB_DB_PATH: 目标数据库路径（默认 dfs://ficc_api_pdf_2026）
+- TARGET_YEAR: 日频行情/估值抓取年份（默认 2026）
+- MATURITY_YEAR: 到期债券筛选年份（默认 2026）
+- OUT_DIR: 本地导出目录
+"""
+
 from __future__ import annotations
 
 import os
@@ -20,10 +37,33 @@ DDB_USER = os.getenv("DDB_USER", "admin")
 DDB_PASSWORD = os.getenv("DDB_PASSWORD", "123456")
 DB_PATH = os.getenv("DDB_DB_PATH", "dfs://ficc_api_pdf_2026")
 OUT_DIR = Path(os.getenv("OUT_DIR", "/hdd/hdd9/jrzhang/data/ficc_api_2026"))
+TARGET_YEAR = int(os.getenv("TARGET_YEAR", "2026"))
+MATURITY_YEAR = int(os.getenv("MATURITY_YEAR", "2026"))
+MATURITY_YEARS_RAW = os.getenv("MATURITY_YEARS", "").strip()
+MONTH_LIMIT = int(os.getenv("MONTH_LIMIT", "0"))
+MAX_CANDIDATE_TICKERS = int(os.getenv("MAX_CANDIDATE_TICKERS", "0"))
+API_TIMEOUT = int(os.getenv("API_TIMEOUT", "90"))
+API_RETRIES = int(os.getenv("API_RETRIES", "6"))
+API_MAX_PAGES = int(os.getenv("API_MAX_PAGES", "0"))
+SCHEMA_DOS = Path(__file__).resolve().parent / "30_create_pricing_schema.dos"
+
+
+def parse_maturity_years() -> list[int]:
+    if MATURITY_YEARS_RAW:
+        years = [int(item.strip()) for item in MATURITY_YEARS_RAW.split(",") if item.strip()]
+        uniq_years = sorted(set(years))
+        if uniq_years:
+            return uniq_years
+    return [MATURITY_YEAR]
+
+
+MATURITY_YEARS = parse_maturity_years()
 
 
 @dataclass(frozen=True)
 class Col:
+    """字段定义：名称、DolphinDB 类型、字段中文注释。"""
+
     name: str
     dtype: str
     comment: str
@@ -178,19 +218,21 @@ SCHEMA: dict[str, dict[str, Any]] = {
 }
 
 
-def quote(s: str) -> str:
-    return s.replace('"', '\\"')
-
-
 def chunked(items: list[str], n: int) -> list[list[str]]:
+    """按固定大小切片，用于 API 多值参数分批请求。"""
+
     return [items[i : i + n] for i in range(0, len(items), n)]
 
 
 def ymd(d: date) -> str:
+    """日期对象转 YYYYMMDD 字符串。"""
+
     return d.strftime("%Y%m%d")
 
 
 def month_ranges(year: int) -> list[tuple[str, str]]:
+    """构造某年的按月时间窗口，便于拆分日频接口请求。"""
+
     out: list[tuple[str, str]] = []
     start = date(year, 1, 1)
     for m in range(1, 13):
@@ -201,10 +243,22 @@ def month_ranges(year: int) -> list[tuple[str, str]]:
             month_end = date(year, m + 1, 1) - timedelta(days=1)
         if month_start >= start:
             out.append((ymd(month_start), ymd(month_end)))
+            if MONTH_LIMIT > 0 and len(out) >= MONTH_LIMIT:
+                break
     return out
 
 
-def call_api(endpoint: str, params: dict[str, Any], retries: int = 4, timeout: int = 60) -> pd.DataFrame:
+def call_api(endpoint: str, params: dict[str, Any], retries: int | None = None, timeout: int | None = None) -> pd.DataFrame:
+    """
+    请求 Datayes API，并将返回结果解析为 DataFrame。
+
+    - 自动重试（网络抖动/超时）
+    - 将 "No Data Returned" 视为空结果而非异常
+    """
+
+    retries = API_RETRIES if retries is None else retries
+    timeout = API_TIMEOUT if timeout is None else timeout
+
     headers = {
         "Authorization": f"Bearer {TOKEN}",
         "Accept-Encoding": "gzip, deflate",
@@ -233,9 +287,12 @@ def call_api(endpoint: str, params: dict[str, Any], retries: int = 4, timeout: i
 
 
 def fetch_paginated(endpoint: str, base_params: dict[str, Any], pagesize: int = 500) -> pd.DataFrame:
+    """分页拉取某个接口，直到无数据或失败次数达到阈值。"""
+
     frames: list[pd.DataFrame] = []
     fail_count = 0
-    for page in range(1, 20000):
+    page_upper = API_MAX_PAGES if API_MAX_PAGES > 0 else 20000
+    for page in range(1, page_upper + 1):
         params = dict(base_params)
         params["pagenum"] = page
         params["pagesize"] = pagesize
@@ -258,29 +315,17 @@ def fetch_paginated(endpoint: str, base_params: dict[str, Any], pagesize: int = 
 
 
 def create_schema(sess: ddb.session) -> None:
-    sess.run(
-        f'''
-if(existsDatabase("{DB_PATH}")){{
-    dropDatabase("{DB_PATH}")
-}}
-database("{DB_PATH}", HASH, [SYMBOL, 31])
-'''
-    )
+    """执行 DOS 脚本建库建表。"""
 
-    for table_name, cfg in SCHEMA.items():
-        col_lines = []
-        for c in cfg["columns"]:
-            col_lines.append(f'    {c.name} {c.dtype} [comment="{quote(c.comment)}"]')
-        create_sql = (
-            f'CREATE TABLE "{DB_PATH}"."{table_name}" (\n'
-            + ",\n".join(col_lines)
-            + '\n)\nPARTITIONED BY secID\n'
-            + f'comment = "{quote(cfg["table_comment"])}"'
-        )
-        sess.run(create_sql)
+    if not SCHEMA_DOS.exists():
+        raise FileNotFoundError(f"schema dos not found: {SCHEMA_DOS}")
+    dos = SCHEMA_DOS.read_text(encoding="utf-8").replace("__DB_PATH__", DB_PATH)
+    sess.run(dos)
 
 
 def ddb_select_expr(columns: list[Col]) -> str:
+    """将列定义映射为 DolphinDB select cast 表达式。"""
+
     type_map = {
         "STRING": "string",
         "DOUBLE": "double",
@@ -297,6 +342,8 @@ def ddb_select_expr(columns: list[Col]) -> str:
 
 
 def align_columns(df: pd.DataFrame, columns: list[Col]) -> pd.DataFrame:
+    """将 API 返回对齐到目标 schema：补缺列、截断列、处理 DATE 类型。"""
+
     out = df.copy()
     for c in columns:
         if c.name not in out.columns:
@@ -309,6 +356,8 @@ def align_columns(df: pd.DataFrame, columns: list[Col]) -> pd.DataFrame:
 
 
 def append_table(sess: ddb.session, table_name: str, df: pd.DataFrame) -> int:
+    """将 DataFrame 写入指定表，返回写入行数。"""
+
     cols: list[Col] = SCHEMA[table_name]["columns"]
     aligned = align_columns(df, cols)
     if aligned.empty:
@@ -326,6 +375,8 @@ loadTable("{DB_PATH}", "{table_name}").append!(
 
 
 def fetch_monthly_all(endpoint: str, year: int, pagesize: int = 500) -> pd.DataFrame:
+    """按月拉取全年数据并去重。"""
+
     frames: list[pd.DataFrame] = []
     for begin_d, end_d in month_ranges(year):
         df = fetch_paginated(endpoint, {"beginDate": begin_d, "endDate": end_d}, pagesize=pagesize)
@@ -336,7 +387,9 @@ def fetch_monthly_all(endpoint: str, year: int, pagesize: int = 500) -> pd.DataF
     return pd.concat(frames, ignore_index=True).drop_duplicates()
 
 
-def get_2026_bond_universe(candidate_tickers: list[str]) -> pd.DataFrame:
+def get_maturity_bond_universe(candidate_tickers: list[str], maturity_years: list[int]) -> pd.DataFrame:
+    """根据候选 ticker 回查 getBond，并筛选指定到期年份集合债券池。"""
+
     if not candidate_tickers:
         return pd.DataFrame()
     frames: list[pd.DataFrame] = []
@@ -351,15 +404,17 @@ def get_2026_bond_universe(candidate_tickers: list[str]) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame()
     all_bond = pd.concat(frames, ignore_index=True).drop_duplicates()
-    if "maturityDate" in all_bond.columns:
+    if "maturityDate" in all_bond.columns and maturity_years:
         mat = pd.to_datetime(all_bond["maturityDate"], errors="coerce")
-        all_bond = all_bond[mat.dt.year.eq(2026)]
+        all_bond = all_bond[mat.dt.year.isin(set(maturity_years))]
     if "secID" in all_bond.columns:
         all_bond = all_bond.drop_duplicates(subset=["secID"])
     return all_bond.reset_index(drop=True)
 
 
 def fetch_by_multivalue(endpoint: str, key: str, values: list[str], extra_params: dict[str, Any] | None = None, chunk_size: int = 30) -> pd.DataFrame:
+    """通过多值参数批量拉取（如 ticker/secID 列表）。"""
+
     if extra_params is None:
         extra_params = {}
     frames: list[pd.DataFrame] = []
@@ -376,6 +431,8 @@ def fetch_by_multivalue(endpoint: str, key: str, values: list[str], extra_params
 
 
 def main() -> None:
+    """主流程：建库建表 -> 数据抓取 -> 入库 -> 导出 -> 校验与摘要。"""
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     session = ddb.session()
@@ -385,15 +442,19 @@ def main() -> None:
 
     create_schema(session)
 
-    market_2026_all = fetch_monthly_all("/api/market/getMktIBBondd.json", 2026, pagesize=500)
+    market_year_all = fetch_monthly_all("/api/market/getMktIBBondd.json", TARGET_YEAR, pagesize=500)
     candidate_tickers = []
-    if not market_2026_all.empty and "ticker" in market_2026_all.columns:
-        candidate_tickers.extend(market_2026_all["ticker"].dropna().astype(str).unique().tolist())
+    if not market_year_all.empty and "ticker" in market_year_all.columns:
+        candidate_tickers.extend(market_year_all["ticker"].dropna().astype(str).unique().tolist())
     candidate_tickers = pd.Series(candidate_tickers).dropna().astype(str).drop_duplicates().tolist()
+    if MAX_CANDIDATE_TICKERS > 0:
+        candidate_tickers = candidate_tickers[:MAX_CANDIDATE_TICKERS]
 
-    bond_df = get_2026_bond_universe(candidate_tickers)
+    bond_df = get_maturity_bond_universe(candidate_tickers, MATURITY_YEARS)
     if bond_df.empty:
-        raise RuntimeError("getBond 未拉到 2026 到期债券数据，请检查 token 或过滤参数")
+        raise RuntimeError(
+            f"getBond 未拉到到期年份 {','.join(map(str, MATURITY_YEARS))} 的债券数据，请检查 token 或过滤参数"
+        )
 
     secids = bond_df["secID"].dropna().astype(str).unique().tolist() if "secID" in bond_df.columns else []
     tickers = bond_df["ticker"].dropna().astype(str).unique().tolist() if "ticker" in bond_df.columns else []
@@ -409,7 +470,7 @@ def main() -> None:
         "/api/bond/getBondCfNew.json",
         "ticker",
         tickers,
-        extra_params={"beginDate": "20260101", "endDate": "20261231"},
+        extra_params={"beginDate": f"{TARGET_YEAR}0101", "endDate": f"{TARGET_YEAR}1231"},
         chunk_size=20,
     )
 
@@ -417,10 +478,10 @@ def main() -> None:
         "/api/bond/getCFETSValuation.json",
         "secID",
         secids,
-        extra_params={"beginDate": "20260101", "endDate": "20261231"},
+        extra_params={"beginDate": f"{TARGET_YEAR}0101", "endDate": f"{TARGET_YEAR}1231"},
         chunk_size=20,
     )
-    market_df = market_2026_all.copy()
+    market_df = market_year_all.copy()
 
     if not market_df.empty:
         market_df = market_df[market_df["secID"].astype(str).isin(set(secids))]
@@ -466,12 +527,35 @@ select * from (
 
     counts.to_csv(OUT_DIR / "table_counts.csv", index=False)
 
+    # 字段 comment 校验：统计每张表缺失字段注释数量（应为 0）
+    comment_check = session.run(
+        f'''
+tabs = `api_getBond`api_getBondCfNew`api_getBondTicker`api_getBondType`api_getCFETSValuation`api_getMktIBBondd
+res = table(1:0, `tableName`missingColComments, [STRING, INT])
+for(tn in tabs){{
+    sch = schema(loadTable("{DB_PATH}", string(tn))).colDefs
+    miss = exec count(*) from sch where isNull(comment) or trim(string(comment))=""
+    insert into res values(string(tn), int(miss))
+}}
+res
+'''
+    )
+    comment_check.to_csv(OUT_DIR / "comment_check.csv", index=False)
+
     print("=== 插入行数（本次批次）===")
     for k, v in inserted.items():
         print(f"{k}: {v}")
 
     print("=== 库内总行数 ===")
     print(counts)
+    print("=== 字段注释缺失校验（应全为0） ===")
+    print(comment_check)
+    print(f"MATURITY_YEARS={MATURITY_YEARS}")
+    print(f"MONTH_LIMIT={MONTH_LIMIT}")
+    print(f"MAX_CANDIDATE_TICKERS={MAX_CANDIDATE_TICKERS}")
+    print(f"API_TIMEOUT={API_TIMEOUT}")
+    print(f"API_RETRIES={API_RETRIES}")
+    print(f"API_MAX_PAGES={API_MAX_PAGES}")
     print(f"DB_PATH={DB_PATH}")
     print(f"OUT_DIR={OUT_DIR}")
 
