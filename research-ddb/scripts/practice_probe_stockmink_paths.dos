@@ -1,2 +1,0 @@
-t = select distinct path, dfsPath from getChunksMeta() where like(dfsPath, "/stockMinKSH/%")
-select * from t
