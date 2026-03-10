@@ -1,0 +1,19 @@
+rawDbPath = "dfs://ficc_api_pdf_2026"
+curveRawDbPath = "dfs://ficc_curve_raw_2026"
+instDbPath = "dfs://instrument_std"
+mdDbPath = "dfs://marketdata_std"
+
+run("/hdd/hdd9/jrzhang/.github/skills/ficc_instru_maket_modeling/scripts/03_mapping_logic_registry.dos")
+
+instMapTb = loadTable(rawDbPath, "std_field_mapping_instrument")
+mdMapTb = loadTable(curveRawDbPath, "std_field_mapping_marketdata")
+
+delete from instMapTb
+delete from mdMapTb
+
+append!(instMapTb, objByName("mapping_instrument_rows"))
+append!(mdMapTb, objByName("mapping_marketdata_rows"))
+
+select "Instrument" as mappingScope, count(*) as fields from instMapTb
+union all
+select "MarketData" as mappingScope, count(*) as fields from mdMapTb

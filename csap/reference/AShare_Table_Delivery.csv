@@ -1,0 +1,15 @@
+﻿美股原始表名,A股建议对标表,A股相关数据源表,核心用途
+monthlyCRSP,A股月度行情表 (Monthly_Quote),Wind_AShareEODPrices / Tushare_monthly,作为因子核心主表，含收盘价、收益率、市值、换手率等估计算法参数
+dailyFF,A股日频五因子/三因子表 (FF_Daily),锐思(RESSET)五因子 / Tushare自建计算,"含有 SMB, HML 收益率和日度风险回报 (rf) 用于计算股票暴露Beta"
+monthlyFF,A股月频五因子表 (FF_Monthly),锐思(RESSET)五因子 / 个股汇总,回归计算长期风险因子的 Beta 用，等同 dailyFF
+monthlyMarket,A股宽基指数月度行情表 (Index_Monthly),万得全A(881001.WI) 行情数据,获取全市场收益率以用来对标Beta与超额收益
+monthlyLiquidity,A股月度流动性表 (Liquidity_Monthly),基于A股日度成交额、收盘价聚合计算,常代入Amihud指标等流动性因子
+CompustatAnnual,A股三大表-年度报告表 (Financial_Annual),Wind_AShareIncome / BalanceSheet,涵盖了所有年末财务快照数据（总资产、总负债、净资产等）
+m_aCompustat,A股三大表-TTM/滚动填充版表 (Financial_TTM),财报数据转TTM后并按月度展开对齐表,在A股通常代表通过预处理将最新年报扩展铺写到每个月的记录上
+m_QCompustat,A股三大表-季度报告表 (Financial_Quarter),一季报/中报/三季报/年报及PIT,因A股对季报披露非常规范，大量季度变化因子依赖此表
+a_aCompustat,同 CompustatAnnual,同上,美股细分年度版变体，A股可直接合表
+CRSPdistributions,A股分红送配表 (Dividend_Splits),Wind_AShareDividend / Tushare_dividend,包含派息、分红、送股和转增信息
+m_CRSPAcquisitions,A股并购重组与股本变动表 (Capital_Changes),重大资产重组事件/股本变更明细,跟踪企业股权变更，退市或并购事项
+CompustatPensions,长期待摊/应付职工薪酬表 (无需专门表),资产负债表中长期应付附注,美股养老资产特殊表，A股一般通过负债表内长期待摊或职工薪酬科目搞定
+CCMLinkingTable,无需连接表 (合并主键 ts_code 即可),无需专门表,美股历史遗留，用于将CRSP行情和财务匹配。A股行情交易与财报全以股票代码(如000001.SZ)对接
+SignalMasterTable,整合后统一因子宽表 (Factor_Master),在执行前根据日历行情底表预关联处理即可,在准备因子计算时临时拼凑的包含所有股票各期行情的基表

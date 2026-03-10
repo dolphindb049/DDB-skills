@@ -1,0 +1,397 @@
+rawDbPath = "dfs://ficc_api_pdf_2026"
+curveRawDbPath = "dfs://ficc_curve_raw_2026"
+instDbPath = "dfs://instrument_std"
+mdDbPath = "dfs://marketdata_std"
+
+instMapTb = loadTable(rawDbPath, "std_field_mapping_instrument")
+mdMapTb = loadTable(curveRawDbPath, "std_field_mapping_marketdata")
+
+
+def buildSelectExpr(mapTable, srcDb, srcTag, dstDb, dstTable){
+    meta = select targetField, mappingCode
+           from mapTable
+                     where sourceDbPath = srcDb
+                         and sourceTable = srcTag
+                         and targetDbPath = dstDb
+                         and targetTable = dstTable
+             and isObjectField = false
+           order by fieldOrder
+    if(size(meta.targetField) == 0){
+        return ""
+    }
+    return concat(meta.mappingCode + " as " + meta.targetField, ",")
+}
+
+
+def applyFieldMappingByMeta(mapTable, sourceObjName, srcDb, srcTag, dstDb, dstTable){
+    expr = buildSelectExpr(mapTable, srcDb, srcTag, dstDb, dstTable)
+    if(expr == ""){
+        throw "no mapping meta found for " + srcTag + " -> " + dstTable
+    }
+    sql = "select " + expr + " from " + sourceObjName
+    return eval(parseExpr(sql))
+}
+
+
+def parseCurveSubType(curveName){
+    n = string(curveName)
+    if(like(n, "%国债%")) return "TREASURY_BOND"
+    if(like(n, "%央票%") or like(n, "%央行票据%")) return "CENTRAL_BANK_BILL"
+    if(like(n, "%国开债%")) return "CDB_BOND"
+    if(like(n, "%进出口行债%")) return "EIBC_BOND"
+    if(like(n, "%农发行债%")) return "ADBC_BOND"
+    if(like(n, "%同业存单%")) return "NCD"
+    if(like(n, "%中短期票据%")) return "MTN"
+    if(like(n, "%地方政府债%")) return "LOCAL_GOV_BOND"
+    if(like(n, "%商业银行债%")) return "BANK_BOND"
+    if(like(n, "%城投债%")) return "URBAN_INVEST_BOND"
+    if(like(n, "%铁道债%")) return "RAILWAY_BOND"
+    if(like(n, "%中资美元债%")) return "CHINA_USD_BOND"
+    return "OTHER_BOND"
+}
+
+
+def parseCurveRating(curveName){
+    n = string(curveName)
+    if(like(n, "%(超AAA)%")) return "AAA"
+    if(like(n, "%(AAA+)%")) return "AAA+"
+    if(like(n, "%(AAA-)%")) return "AAA-"
+    if(like(n, "%(AAA)%")) return "AAA"
+    if(like(n, "%(AA+)%")) return "AA+"
+    if(like(n, "%(AA-)%")) return "AA-"
+    if(like(n, "%(AA)%")) return "AA"
+    if(like(n, "%(A+)%")) return "A+"
+    if(like(n, "%(A-)%")) return "A-"
+    if(like(n, "%(A)%")) return "A"
+    if(like(n, "%(BBB+)%")) return "BBB+"
+    if(like(n, "%(BBB-)%")) return "BBB-"
+    if(like(n, "%(BBB)%")) return "BBB"
+    return string(NULL)
+}
+
+
+instRaw = loadTable(rawDbPath, "api_getBond")
+mktRaw = loadTable(rawDbPath, "api_getMktIBBondd")
+instOut = loadTable(instDbPath, "Instrument")
+mdOut = loadTable(mdDbPath, "MarketData")
+
+delete from instOut where sourceTable = "api_getBond"
+delete from mdOut where sourceTable in ["api_getMktIBBondd+api_getBond", "curve_shch_yield_raw"]
+
+bondBase = select
+    *
+from instRaw
+where not isNull(firstAccrDate) and not isNull(maturityDate) and not isNull(secID)
+  and (string(couponTypeCD) == "ZERO" or (not isNull(coupon) and double(coupon) > 0))
+
+instWideRaw = applyFieldMappingByMeta(instMapTb, "bondBase", rawDbPath, "api_getBond", instDbPath, "Instrument")
+
+instWideNorm = select
+    bondType,
+    productType,
+    assetType,
+    version,
+    instrumentId,
+    start,
+    maturity,
+    issuePrice,
+    coupon,
+    calendar,
+    frequency,
+    dayCountConvention,
+    subType,
+    iif(isNull(creditRating) or trim(string(creditRating))=="" or upper(trim(string(creditRating)))=="NULL", string(NULL), trim(string(creditRating))) as creditRating,
+    issuer,
+    iif(isNull(currency) or trim(string(currency))=="" or upper(trim(string(currency)))=="NULL", string(NULL), trim(string(currency))) as currency,
+    nominal,
+    isRegular,
+    instrumentName,
+    listingDate,
+    market,
+    sourceDbPath,
+    sourceTable,
+    updateTime
+from instWideRaw
+
+instWide = select
+    bondType,
+    productType,
+    assetType,
+    version,
+    instrumentId,
+    start,
+    maturity,
+    issuePrice,
+    coupon,
+    calendar,
+    frequency,
+    dayCountConvention,
+    subType,
+    creditRating,
+    iif(not isNull(currency) and trim(string(currency))!="" and not isNull(subType) and trim(string(subType))!="" and not isNull(creditRating) and trim(string(creditRating))!="",
+        string(currency) + "_" + string(subType) + "_" + string(creditRating),
+        string(NULL)) as discountCurve,
+    issuer,
+    currency,
+    nominal,
+    isRegular,
+    instrumentName,
+    listingDate,
+    market,
+    sourceDbPath,
+    sourceTable,
+    updateTime
+from instWideNorm
+
+instRows = table(1:0,
+    `bondType`productType`assetType`version`instrumentId`start`maturity`issuePrice`coupon`calendar`frequency`dayCountConvention`subType`creditRating`discountCurve`issuer`currency`nominal`instrument`isRegular`instrumentName`listingDate`market`sourceDbPath`sourceTable`updateTime,
+    [STRING,STRING,STRING,INT,STRING,DATE,DATE,DOUBLE,DOUBLE,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,DOUBLE,INSTRUMENT,BOOL,STRING,DATE,STRING,STRING,STRING,TIMESTAMP])
+
+for(i in 0:(size(instWide.instrumentId)-1)){
+    instObj = parseInstrument(dict(
+        `productType`assetType`bondType`version`instrumentId`start`maturity`issuePrice`coupon`calendar`frequency`dayCountConvention`subType`creditRating`discountCurve`issuer`currency`nominal,
+        [instWide.productType[i],instWide.assetType[i],instWide.bondType[i],instWide.version[i],instWide.instrumentId[i],instWide.start[i],instWide.maturity[i],instWide.issuePrice[i],instWide.coupon[i],instWide.calendar[i],instWide.frequency[i],instWide.dayCountConvention[i],instWide.subType[i],instWide.creditRating[i],instWide.discountCurve[i],instWide.issuer[i],instWide.currency[i],instWide.nominal[i]]
+    ))
+    tableInsert(instRows,
+        instWide.bondType[i],
+        instWide.productType[i],
+        instWide.assetType[i],
+        instWide.version[i],
+        instWide.instrumentId[i],
+        instWide.start[i],
+        instWide.maturity[i],
+        instWide.issuePrice[i],
+        instWide.coupon[i],
+        instWide.calendar[i],
+        instWide.frequency[i],
+        instWide.dayCountConvention[i],
+        instWide.subType[i],
+        instWide.creditRating[i],
+        instWide.discountCurve[i],
+        instWide.issuer[i],
+        instWide.currency[i],
+        instWide.nominal[i],
+        instObj,
+        instWide.isRegular[i],
+        instWide.instrumentName[i],
+        instWide.listingDate[i],
+        instWide.market[i],
+        instWide.sourceDbPath[i],
+        instWide.sourceTable[i],
+        instWide.updateTime[i]
+    )
+}
+
+append!(instOut, instRows)
+
+if(exists("std_instrument_bond")){
+    tmpInst = objByName("std_instrument_bond")
+    delete from tmpInst
+    append!(tmpInst, instRows)
+}else{
+    share instRows as std_instrument_bond
+}
+
+mdRows = table(1:0,
+    `referenceDate`name`mktDataType`curveType`dayCountConvention`compounding`frequency`interpMethod`extrapMethod`dates`values`curveName`currency`settlement`curveModel`curveParams`data`sourceDbPath`sourceTable`updateTime,
+    [DATE,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,DATE[],DOUBLE[],STRING,STRING,DATE,STRING,ANY,MKTDATA,STRING,STRING,TIMESTAMP])
+
+mktBase = select string(secID) as secID, date(tradeDate) as referenceDate,
+                 coalesce(double(YTM), coalesce(double(closeYield), double(wAvgYield))) / 100.0 as yv
+          from mktRaw
+          where not isNull(secID) and not isNull(tradeDate)
+
+instKey = select string(secID) as secID, date(maturityDate) as maturityDate, string(typeName) as typeName
+          from instRaw
+          where not isNull(secID) and not isNull(maturityDate)
+
+mktJoin = lj(mktBase, instKey, `secID)
+
+mktNode = select
+    referenceDate,
+    iif(like(typeName,"*国债*"),"TREASURY_BOND",
+        iif(like(typeName,"*国开*"),"CDB_BOND",
+            iif(like(typeName,"*进出口*"),"EIBC_BOND",
+                iif(like(typeName,"*农发行*"),"ADBC_BOND","CORP_BOND")))) as subType,
+    maturityDate as nodeDate,
+    yv as nodeValue
+from mktJoin
+where not isNull(referenceDate) and not isNull(maturityDate) and not isNull(yv) and maturityDate > referenceDate
+
+mktNodeAgg = select
+    referenceDate,
+    subType,
+    nodeDate,
+    avg(nodeValue) as nodeValue
+from mktNode
+group by referenceDate, subType, nodeDate
+order by referenceDate, subType, nodeDate
+
+mktNodeCurveAgg = select
+    referenceDate,
+    "CNY_" + subType + "_YTM" as curveName,
+    nodeDate,
+    nodeValue
+from mktNodeAgg
+order by referenceDate, curveName, nodeDate
+
+apiCurvePrepared = table(1:0,
+    `referenceDate`name`curveName`datesVec`valuesVec,
+    [DATE,STRING,STRING,DATE[],DOUBLE[]])
+
+apiCurveKeys = select distinct referenceDate, curveName from mktNodeCurveAgg
+for(i in 0:(size(apiCurveKeys.referenceDate)-1)){
+    rd = apiCurveKeys.referenceDate[i]
+    cn = apiCurveKeys.curveName[i]
+    sub = select nodeDate, nodeValue from mktNodeCurveAgg where referenceDate = rd and curveName = cn order by nodeDate
+    if(size(sub.nodeDate) < 2){
+        continue
+    }
+    tableInsert(apiCurvePrepared,
+        rd,
+        cn,
+        cn,
+        sub.nodeDate,
+        sub.nodeValue)
+}
+
+if(size(apiCurvePrepared.referenceDate) > 0){
+    for(i in 0:(size(apiCurvePrepared.referenceDate)-1)){
+        dtv = apiCurvePrepared.datesVec[i]
+        vvv = apiCurvePrepared.valuesVec[i]
+        if(size(dtv) < 2 or size(vvv) < 2){
+            continue
+        }
+        rdApi = apiCurvePrepared.referenceDate[i]
+        cnApi = apiCurvePrepared.curveName[i]
+        mdObj = parseMktData(dict(
+            `mktDataType`curveType`referenceDate`dayCountConvention`compounding`frequency`interpMethod`extrapMethod`dates`values`curveName`currency,
+            ["Curve","IrYieldCurve",rdApi,"Actual365","Continuous","Annual","Linear","Flat",dtv,vvv,cnApi,"CNY"]
+        ))
+        tableInsert(mdRows,
+            rdApi,
+            cnApi,
+            "Curve",
+            "IrYieldCurve",
+            "Actual365",
+            "Continuous",
+            "Annual",
+            "Linear",
+            "Flat",
+            dtv,
+            vvv,
+            cnApi,
+            "CNY",
+            date(NULL),
+            "Bootstrap",
+            NULL,
+            mdObj,
+            rawDbPath,
+            "api_getMktIBBondd+api_getBond",
+            now()
+        )
+    }
+}
+
+if(existsTable(curveRawDbPath, "curve_shch_yield_raw")){
+    curveRaw = loadTable(curveRawDbPath, "curve_shch_yield_raw")
+
+    curveRawStd = select
+        date(referenceDate) as referenceDate,
+        string(curveName) as rawCurveName,
+        iif(like(upper(trim(string(tenorLabel))), "*M"),
+            double(replace(upper(trim(string(tenorLabel))), "M", "")) / 12.0,
+            iif(like(upper(trim(string(tenorLabel))), "*Y"),
+                double(replace(upper(trim(string(tenorLabel))), "Y", "")),
+                double(standardTermYear))) as tenorYear,
+        double(yieldPct) / 100.0 as nodeValue
+    from curveRaw
+    where not isNull(referenceDate) and not isNull(yieldPct) and string(curveType) == "即期"
+
+    curveRawNode = select
+        referenceDate,
+        string(rawCurveName) as rawCurveName,
+        referenceDate + int(round(tenorYear * 365.0)) as nodeDate,
+        nodeValue
+    from curveRawStd
+    where not isNull(tenorYear) and tenorYear >= 0 and not isNull(nodeValue)
+
+    curveRawNodeAgg = select
+        referenceDate,
+        rawCurveName,
+        nodeDate,
+        avg(nodeValue) as nodeValue
+    from curveRawNode
+    group by referenceDate, rawCurveName, nodeDate
+    order by referenceDate, rawCurveName, nodeDate
+
+    prepMeta = select top 1 mappingCode
+               from mdMapTb
+               where sourceDbPath = curveRawDbPath
+                 and sourceTable = "curve_shch_yield_raw"
+                 and targetDbPath = mdDbPath
+                 and targetTable = "MarketData"
+                 and targetField = "__prepare_groupby"
+               order by fieldOrder
+
+    if(size(prepMeta.mappingCode) == 0){
+        throw "missing groupby prepare mapping code for curve_shch_yield_raw"
+    }
+
+    curveRawPrepared = eval(parseExpr(prepMeta.mappingCode[0]))
+    curveRawPrepared = select * from curveRawPrepared where size(datesVec) >= 2 and size(valuesVec) >= 2
+
+    if(size(curveRawPrepared.referenceDate) > 0){
+        curveRawMdWide = applyFieldMappingByMeta(mdMapTb, "curveRawPrepared", curveRawDbPath, "curve_shch_yield_raw", mdDbPath, "MarketData")
+        for(j in 0:(size(curveRawMdWide.referenceDate)-1)){
+            dtv2 = curveRawMdWide.dates[j]
+            vvv2 = curveRawMdWide.values[j]
+            if(size(dtv2) < 2 or size(vvv2) < 2){
+                continue
+            }
+            mdObj2 = parseMktData(dict(
+                `mktDataType`curveType`referenceDate`dayCountConvention`compounding`frequency`interpMethod`extrapMethod`dates`values`curveName`currency,
+                [curveRawMdWide.mktDataType[j],curveRawMdWide.curveType[j],curveRawMdWide.referenceDate[j],curveRawMdWide.dayCountConvention[j],curveRawMdWide.compounding[j],curveRawMdWide.frequency[j],curveRawMdWide.interpMethod[j],curveRawMdWide.extrapMethod[j],dtv2,vvv2,curveRawMdWide.curveName[j],curveRawMdWide.currency[j]]
+            ))
+            tableInsert(mdRows,
+                curveRawMdWide.referenceDate[j],
+                curveRawMdWide.name[j],
+                curveRawMdWide.mktDataType[j],
+                curveRawMdWide.curveType[j],
+                curveRawMdWide.dayCountConvention[j],
+                curveRawMdWide.compounding[j],
+                curveRawMdWide.frequency[j],
+                curveRawMdWide.interpMethod[j],
+                curveRawMdWide.extrapMethod[j],
+                dtv2,
+                vvv2,
+                curveRawMdWide.curveName[j],
+                curveRawMdWide.currency[j],
+                curveRawMdWide.settlement[j],
+                curveRawMdWide.curveModel[j],
+                curveRawMdWide.curveParams[j],
+                mdObj2,
+                curveRawMdWide.sourceDbPath[j],
+                curveRawMdWide.sourceTable[j],
+                curveRawMdWide.updateTime[j]
+            )
+        }
+    }
+}
+
+
+append!(mdOut, mdRows)
+
+if(exists("std_market_curve")){
+    tmpMd = objByName("std_market_curve")
+    delete from tmpMd
+    append!(tmpMd, mdRows)
+}else{
+    share mdRows as std_market_curve
+}
+
+select
+    (exec count(*) from instRows)[0] as insertedInstrumentRows,
+    (exec count(*) from mdRows where sourceTable="api_getMktIBBondd+api_getBond")[0] as insertedMarketRowsFromApi,
+    (exec count(*) from mdRows where sourceTable="curve_shch_yield_raw")[0] as insertedMarketRowsFromCurveRaw,
+    (exec count(*) from mdRows)[0] as insertedMarketRowsTotal

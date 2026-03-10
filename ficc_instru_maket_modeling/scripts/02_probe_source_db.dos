@@ -1,0 +1,92 @@
+rawDbPath = "dfs://ficc_api_pdf_2026"
+curveRawDbPath = "dfs://ficc_curve_raw_2026"
+instDbPath = "dfs://instrument_std"
+mdDbPath = "dfs://marketdata_std"
+expectedEndpoint = "http://192.168.100.43:7731/"
+
+
+def failOnMissing(path, why){
+    throw "[FATAL] " + why + " 缺失: " + path + ". 当前连接节点不包含该DFS元数据，请改连 " + expectedEndpoint + " 后重试。"
+}
+
+
+if(!existsDatabase(rawDbPath)){
+    failOnMissing(rawDbPath, "源库")
+}
+if(!existsDatabase(curveRawDbPath)){
+    failOnMissing(curveRawDbPath, "曲线源库")
+}
+if(!existsTable(rawDbPath, "api_getBond")){
+    failOnMissing(rawDbPath + ".api_getBond", "关键源表")
+}
+if(!existsTable(rawDbPath, "api_getMktIBBondd")){
+    failOnMissing(rawDbPath + ".api_getMktIBBondd", "关键源表")
+}
+if(!existsTable(curveRawDbPath, "curve_shch_yield_raw")){
+    failOnMissing(curveRawDbPath + ".curve_shch_yield_raw", "关键曲线源表")
+}
+
+if(exists("std_probe_report")){
+    probeTb = objByName("std_probe_report")
+    delete from probeTb
+}else{
+    probeTb = table(1:0, `dbPath`tableName`rowCount`colName`colType`colComment`probeTime,
+        [STRING,STRING,LONG,STRING,STRING,STRING,TIMESTAMP])
+    share probeTb as std_probe_report
+}
+
+if(existsTable(rawDbPath, "api_getBond")){
+    tb = loadTable(rawDbPath, "api_getBond")
+    rc = (exec count(*) from tb)[0]
+    defs = schema(tb).colDefs
+    append!(probeTb, select rawDbPath as dbPath, "api_getBond" as tableName, long(rc) as rowCount, string(name) as colName, string(typeString) as colType, string(comment) as colComment, now() as probeTime from defs)
+}
+
+if(existsTable(rawDbPath, "api_getMktIBBondd")){
+    tb = loadTable(rawDbPath, "api_getMktIBBondd")
+    rc = (exec count(*) from tb)[0]
+    defs = schema(tb).colDefs
+    append!(probeTb, select rawDbPath as dbPath, "api_getMktIBBondd" as tableName, long(rc) as rowCount, string(name) as colName, string(typeString) as colType, string(comment) as colComment, now() as probeTime from defs)
+}
+
+if(existsTable(curveRawDbPath, "curve_shch_yield_raw")){
+    tb = loadTable(curveRawDbPath, "curve_shch_yield_raw")
+    rc = (exec count(*) from tb)[0]
+    defs = schema(tb).colDefs
+    append!(probeTb, select curveRawDbPath as dbPath, "curve_shch_yield_raw" as tableName, long(rc) as rowCount, string(name) as colName, string(typeString) as colType, string(comment) as colComment, now() as probeTime from defs)
+}
+
+if(existsTable(rawDbPath, "std_field_mapping_instrument")){
+    tb = loadTable(rawDbPath, "std_field_mapping_instrument")
+    rc = (exec count(*) from tb)[0]
+    defs = schema(tb).colDefs
+    append!(probeTb, select rawDbPath as dbPath, "std_field_mapping_instrument" as tableName, long(rc) as rowCount, string(name) as colName, string(typeString) as colType, string(comment) as colComment, now() as probeTime from defs)
+}
+
+if(existsTable(curveRawDbPath, "std_field_mapping_marketdata")){
+    tb = loadTable(curveRawDbPath, "std_field_mapping_marketdata")
+    rc = (exec count(*) from tb)[0]
+    defs = schema(tb).colDefs
+    append!(probeTb, select curveRawDbPath as dbPath, "std_field_mapping_marketdata" as tableName, long(rc) as rowCount, string(name) as colName, string(typeString) as colType, string(comment) as colComment, now() as probeTime from defs)
+}
+
+if(existsTable(instDbPath, "Instrument")){
+    tb = loadTable(instDbPath, "Instrument")
+    rc = (exec count(*) from tb)[0]
+    defs = schema(tb).colDefs
+    append!(probeTb, select instDbPath as dbPath, "Instrument" as tableName, long(rc) as rowCount, string(name) as colName, string(typeString) as colType, string(comment) as colComment, now() as probeTime from defs)
+}
+
+if(existsTable(mdDbPath, "MarketData")){
+    tb = loadTable(mdDbPath, "MarketData")
+    rc = (exec count(*) from tb)[0]
+    defs = schema(tb).colDefs
+    append!(probeTb, select mdDbPath as dbPath, "MarketData" as tableName, long(rc) as rowCount, string(name) as colName, string(typeString) as colType, string(comment) as colComment, now() as probeTime from defs)
+}
+
+select dbPath, tableName, max(rowCount) as rowCount, count(*) as colCount
+from std_probe_report
+group by dbPath, tableName
+order by dbPath, tableName
+
+print("[OK] source probe passed on current node. expected endpoint=" + expectedEndpoint)

@@ -1,0 +1,2503 @@
+module CSAPFactors
+//start with Signals
+//Predictors
+
+def stataWinsorize(X,limit){
+    return iif(isNull(X),NULL,iif(X>quantile(X, 1-limit,'lower'),quantile(X, 1-limit, 'lower'),iif(X<quantile(X, limit,'linear'),quantile(X, limit,'linear'),X)))
+}
+
+def stataWinsortrim(X,limit){
+    return iif(isNull(X),NULL,iif(X>quantile(X, 1-limit,'lower'),NULL,iif(X<quantile(X, limit,'linear'),NULL,X)))
+}
+
+def stataMoveM(T, X, window){
+    return iif(tmove(T,T,window)==temporalAdd(T,-window, "M"),tmove(T,X, window),null)
+}
+
+def stataMoveY(T, X, window){
+    return iif(move(T,window)==T-window,move(X, window),null)
+}
+
+
+def stataBigger(a,b){
+    if (isNull(a) && !isNull(b))
+            return true
+    if (!isNull(a) && isNull(b))
+            return false
+    if (!isNull(a) && !isNull(b))
+            return a>b
+    if (isNull(a) && isNull(b))
+            return NULL
+}
+
+def stataEbigger(a,b){
+    if (isNull(a) && !isNull(b))
+            return true
+    if (!isNull(a) && isNull(b))
+            return false
+    if (!isNull(a) && !isNull(b))
+            return a>=b
+    if (isNull(a) && isNull(b))
+            return NULL
+}
+
+
+def sicff(sicCRSP){
+    group_ranges = {
+        1: ["0100-0199", "0200-0299", "0700-0799", "0910-0919", "2048-2048"],
+        2: ["2000-2009", "2010-2019", "2020-2029", "2030-2039", "2040-2046", "2050-2059", "2060-2063", "2070-2079", "2090-2092", "2095-2095", "2098-2099"],
+        3: ["2064-2068", "2086-2086", "2087-2087", "2096-2096", "2097-2097"],
+        4: ["2080-2080", "2082-2082", "2083-2083", "2084-2084", "2085-2085"],
+        5: ["2100-2199"],
+        6: ["0920-0999", "3650-3651", "3652-3652", "3732-3732", "3930-3931", "3940-3949"],
+        7: ["7800-7829", "7830-7833", "7840-7841", "7900-7900", "7910-7911", "7920-7929", "7930-7933", "7940-7949", "7980-7980", "7990-7999"],
+        8: ["2700-2709", "2710-2719", "2720-2729", "2730-2739", "2740-2749", "2770-2771", "2780-2789", "2790-2799"],
+        9: ["2047-2047", "2391-2392", "2510-2519", "2590-2599", "2840-2843", "2844-2844", "3160-3161", "3170-3171", "3172-3172", "3190-3199", "3229-3229", "3260-3260", "3262-3263", "3269-3269", "3230-3231", "3630-3639", "3750-3751", "3800-3800", "3860-3861", "3870-3873", "3910-3911", "3914-3914", "3915-3915", "3960-3962", "3991-3991", "3995-3995"],
+        10: ["2300-2390", "3020-3021", "3100-3111", "3130-3131", "3140-3149", "3150-3151", "3963-3965"],
+        11: ["8000-8099"],
+        12: ["3693-3693", "3840-3849", "3850-3851"],
+        13: ["2830-2830", "2831-2831", "2833-2833", "2834-2834", "2835-2835", "2836-2836"],
+        14: ["2800-2809", "2810-2819", "2820-2829", "2850-2859", "2860-2869", "2870-2879", "2890-2899"],
+        15: ["3031-3031", "3041-3041", "3050-3053", "3060-3069", "3070-3079", "3080-3089", "3090-3099"],
+        16: ["2200-2269", "2270-2279", "2280-2284", "2290-2295", "2297-2297", "2298-2298", "2299-2299", "2393-2395", "2397-2399"],
+        17: ["0800-0899", "2400-2439", "2450-2459", "2490-2499", "2660-2661", "2950-2952", "3200-3200", "3210-3211", "3240-3241", "3250-3259", "3261-3261", "3264-3264", "3270-3275", "3280-3281", "3290-3293", "3295-3299", "3420-3429", "3430-3433", "3440-3441", "3442-3442", "3446-3446", "3448-3448", "3449-3449", "3450-3451", "3452-3452", "3490-3499", "3996-3996"],
+        18: ["1500-1511", "1520-1529", "1530-1539", "1540-1549", "1600-1699", "1700-1799"],
+        19: ["3300-3300", "3310-3317", "3320-3325", "3330-3339", "3340-3341", "3350-3357", "3360-3369", "3370-3379", "3390-3399"],
+        20: ["3400-3400", "3443-3443", "3444-3444", "3460-3469", "3470-3479"],
+        21: ["3510-3519", "3520-3529", "3530-3530", "3531-3531", "3532-3532", "3533-3533", "3534-3534", "3535-3535", "3536-3536", "3538-3538", "3540-3549", "3550-3559", "3560-3569", "3580-3580", "3581-3581", "3582-3582", "3585-3585", "3586-3586", "3589-3589", "3590-3599"],
+        22: ["3600-3600", "3610-3613", "3620-3621", "3623-3629", "3640-3644", "3645-3645", "3646-3646", "3648-3649", "3660-3660", "3690-3690", "3691-3692", "3699-3699"],
+        23: ["2296-2296", "2396-2396", "3010-3011", "3537-3537", "3647-3647", "3694-3694", "3700-3700", "3710-3710", "3711-3711", "3713-3713", "3714-3714", "3715-3715", "3716-3716", "3792-3792", "3790-3791", "3799-3799"],
+        24: ["3720-3720", "3721-3721", "3723-3724", "3725-3725", "3728-3729"],
+        25: ["3730-3731", "3740-3743"],
+        26: ["3760-3769", "3795-3795", "3480-3489"],
+        27: ["1040-1049"],
+        28: ["1000-1009", "1010-1019", "1020-1029", "1030-1039", "1050-1059", "1060-1069", "1070-1079", "1080-1089", "1090-1099", "1100-1119", "1400-1499"],
+        29: ["1200-1299"],
+        30: ["1300-1300", "1310-1319", "1320-1329", "1330-1339", "1370-1379", "1380-1380", "1381-1381", "1382-1382", "1389-1389", "2900-2912", "2990-2999"],
+        31: ["4900-4900", "4910-4911", "4920-4922", "4923-4923", "4924-4925", "4930-4931", "4932-4932", "4939-4939", "4940-4942"],
+        32: ["4800-4800", "4810-4813", "4820-4822", "4830-4839", "4840-4841", "4880-4889", "4890-4890", "4891-4891", "4892-4892", "4899-4899"],
+        33: ["7020-7021", "7030-7033", "7200-7200", "7210-7212", "7214-7214", "7215-7216", "7217-7217", "7219-7219", "7220-7221", "7230-7231", "7240-7241", "7250-7251", "7260-7269", "7270-7290", "7291-7291", "7292-7299", "7395-7395", "7500-7500", "7520-7529", "7530-7539", "7540-7549", "7600-7600", "7620-7620", "7622-7622", "7623-7623", "7629-7629", "7630-7631", "7640-7641", "7690-7699", "8100-8199", "8200-8299", "8300-8399", "8400-8499", "8600-8699", "8800-8899", "7510-7515"],
+        34: ["2750-2759", "3993-3993", "7218-7218", "7300-7300", "7310-7319", "7320-7329", "7330-7339", "7340-7342", "7349-7349", "7350-7351", "7352-7352", "7353-7353", "7359-7359", "7360-7369", "7370-7372", "7374-7374", "7375-7375", "7376-7376", "7377-7377", "7378-7378", "7379-7379", "7380-7380", "7381-7382", "7383-7383", "7384-7384", "7385-7385", "7389-7390", "7391-7391", "7392-7392", "7393-7393", "7394-7394", "7396-7396", "7397-7397", "7399-7399", "7519-7519", "8700-8700", "8710-8713", "8720-8721", "8730-8734", "8740-8748", "8900-8910", "8911-8911", "8920-8999", "4220-4229"],
+        35: ["3570-3579", "3680-3680", "3681-3681", "3682-3682", "3683-3683", "3684-3684", "3685-3685", "3686-3686", "3687-3687", "3688-3688", "3689-3689", "3695-3695", "7373-7373"],
+        36: ["3622-3622", "3661-3661", "3662-3662", "3663-3663", "3664-3664", "3665-3665", "3666-3666", "3669-3669", "3670-3679", "3810-3810", "3812-3812"],
+        37: ["3811-3811", "3820-3820", "3821-3821", "3822-3822", "3823-3823", "3824-3824", "3825-3825", "3826-3826", "3827-3827", "3829-3829", "3830-3839"],
+        38: ["2520-2549", "2600-2639", "2670-2699", "2760-2761", "3950-3955"],
+        39: ["2440-2449", "2640-2659", "3220-3221", "3410-3412"],
+        40: ["4000-4013", "4040-4049", "4100-4100", "4110-4119", "4120-4121", "4130-4131", "4140-4142", "4150-4151", "4170-4173", "4190-4199", "4200-4200", "4210-4219", "4230-4231", "4240-4249", "4400-4499", "4500-4599", "4600-4699", "4700-4700", "4710-4712", "4720-4729", "4730-4739", "4740-4749", "4780-4780", "4782-4782", "4783-4783", "4784-4784", "4785-4785", "4789-4789"],
+        41: ["5000-5000", "5010-5015", "5020-5023", "5030-5039", "5040-5042", "5043-5043", "5044-5044", "5045-5045", "5046-5046", "5047-5047", "5048-5048", "5049-5049", "5050-5059", "5060-5060", "5063-5063", "5064-5064", "5065-5065", "5070-5078", "5080-5080", "5081-5081", "5082-5082", "5083-5083", "5084-5084", "5085-5085", "5086-5087", "5088-5088", "5090-5090", "5091-5092", "5093-5093", "5094-5094", "5099-5099", "5100-5100", "5110-5113", "5120-5122", "5130-5139", "5140-5149", "5150-5159", "5160-5169", "5170-5172", "5180-5182", "5190-5199"],
+        42: ["5200-5200", "5210-5219", "5220-5229", "5230-5231", "5250-5251", "5260-5261", "5270-5271", "5300-5300", "5310-5311", "5320-5320", "5330-5331", "5334-5334", "5340-5349", "5390-5399", "5400-5400", "5410-5411", "5412-5412", "5420-5429", "5430-5439", "5440-5449", "5450-5459", "5460-5469", "5490-5499", "5500-5500", "5510-5529", "5530-5539", "5540-5549", "5550-5559", "5560-5569", "5570-5579", "5590-5599", "5600-5699", "5700-5700", "5710-5719", "5720-5722", "5730-5733", "5734-5734", "5735-5735", "5736-5736", "5750-5799", "5900-5900", "5910-5912", "5920-5929", "5930-5932", "5940-5940", "5941-5941", "5942-5942", "5943-5943", "5944-5944", "5945-5945", "5946-5946", "5947-5947", "5948-5948", "5949-5949", "5950-5959", "5960-5969", "5970-5979", "5980-5989", "5990-5990", "5992-5992", "5993-5993", "5994-5994", "5995-5995", "5999-5999"],
+        43: ["5800-5819", "5820-5829", "5890-5899", "7000-7000", "7010-7019", "7040-7049", "7213-7213"],
+        44: ["6000-6000", "6010-6019", "6020-6020", "6021-6021", "6022-6022", "6023-6024", "6025-6025", "6026-6026", "6027-6027", "6028-6029", "6030-6036", "6040-6059", "6060-6062", "6080-6082", "6090-6099", "6100-6100", "6110-6111", "6112-6113", "6120-6129", "6130-6139", "6140-6149", "6150-6159", "6160-6169", "6170-6179", "6190-6199"],
+        45: ["6300-6300", "6310-6319", "6320-6329", "6330-6331", "6350-6351", "6360-6361", "6370-6379", "6390-6399", "6400-6411"],
+        46: ["6500-6500", "6510-6510", "6512-6512", "6513-6513", "6514-6514", "6515-6515", "6517-6519", "6520-6529", "6530-6531", "6532-6532", "6540-6541", "6550-6553", "6590-6599", "6610-6611"],
+        47: ["6200-6299", "6700-6700", "6710-6719", "6720-6722", "6723-6723", "6724-6724", "6725-6725", "6726-6726", "6730-6733", "6740-6779", "6790-6791", "6792-6792", "6793-6793", "6794-6794", "6795-6795", "6798-6798", "6799-6799"],
+        48: ["4950-4959", "4960-4961", "4970-4971", "4990-4991"]
+    }
+        
+    code_to_group = {2440:1}
+    
+    for (group in group_ranges.keys()){
+        for(r in group_ranges[group]){
+            start_str, end_str = r.split('-')
+            start= int(start_str)
+            end=int(end_str)+1
+            for (code in start:end){
+                code_to_group[string(code)] = int(group)
+            }
+        }
+    }
+    return code_to_group[string(sicCRSP)]$INT
+}
+
+
+def am(at, mve_c){
+    //Total assets to market
+    return at \ mve_c
+}
+
+def accruals(txp, act, che, lct, dlc, dp, at){
+    //Accruals
+    tempTXP = iif(isValid(txp),txp,0)
+    Accruals = ((act-move(act,12)) - (che-move(che,12)) - ((lct-move(lct,12))-(dlc-move(dlc,12)) - (tempTXP - move(tempTXP,12))) - dp) \ ((at+move(at,12))\2).nullFill(0)
+    return Accruals
+}
+
+def accrualsBM(permno,mve_c,time_avail_m,ceq,act,che,lct,dlc,txp,at){
+    //Accruals and BM
+    BM = log(ceq\mve_c)
+    tempacc = ((act-move(act,12))-(che-move(che,12))-((lct-move(lct,12)) - (dlc-move(dlc,12)) - (txp-move(txp,12))))\((at+move(at,12))\2)
+    temp= table(permno,time_avail_m,BM,tempacc)
+    temp = select *, asof(quantileSeries(BM,[0,0.2,0.4,0.6,0.8],interpolation='midpoint'),BM) as tempBM,asof(quantileSeries(tempacc,[0,0.2,0.4,0.6,0.8],interpolation='midpoint'),tempacc) as temptempacc from temp context by time_avail_m order by permno, time_avail_m 
+    update temp set tempBM = tempBM+1
+    update temp set temptempacc = temptempacc+1
+    temp = select *, iif(ceq < 0, NULL, iif(tempBM == 5 and temptempacc == 1, 1, iif(tempBM==1 and temptempacc==5, 0, NULL))) as AccrualsBM from temp
+    return permno,time_avail_m,temp.AccrualsBM
+}
+
+
+def adExp(xad, mve_c){
+    // Advertising Expenses
+    return iif(xad<=0,NULL,xad\mve_c)
+}
+
+
+
+def assetGrowth(time_avail_m,at){
+    //Asset Growth
+    return (at - stataMoveM(time_avail_m,at, 12)) \ stataMoveM(time_avail_m,at, 12)
+}
+
+
+
+def bm(ceqt, me_datadate){
+    return log(ceqt \ me_datadate)
+}
+
+
+
+def bmDec(permno,time_avail_m,txditc,seq,ceq,at,lt,pstk,pstkrv,pstkl,prc,shrout){
+    //Book-to-market (December market equity)
+    tempME = iif(monthOfYear(time_avail_m) == 12, abs(prc) * shrout, NULL)
+    tempYear = year(time_avail_m)
+    tempDecME = contextby(min, tempME, [tempYear,permno])
+    temptxditc = txditc.nullFill(0)
+    //tempPS = iif(!isValid(pstk), pstkrv, pstk)
+    //tempPS = iif(!isValid(tempPS), pstkl, tempPS)
+    tempPS = iif(!isValid(pstk), iif(!isValid(pstkrv), pstkl, pstkrv), pstk)
+    // tempSE = iif(!isValid(seq), ceq + tempPS, seq)
+    // tempSE = iif(!isValid(tempSE), at - lt, tempSE)
+    tempSE = iif(!isValid(seq), iif(!isValid(ceq + tempPS), at - lt, ceq + tempPS), seq)
+    tempBE = tempSE + temptxditc - tempPS
+    BMdec = iif(monthOfYear(time_avail_m)>=6,tempBE\(stataMoveM(time_avail_m,tempDecME,12)),tempBE\(stataMoveM(time_avail_m,tempDecME,17)))
+    return BMdec
+}
+
+defg olsAgg1(Y, X1) {
+    return ols(Y,X1)[1]
+}
+def Beta(ret,ewretd,rf){
+    //CAPM Beta
+    retrf = ret - rf
+    ewmktrf = ewretd - rf
+    //return moving( olsAgg1, (retrf, ewmktrf), 60, 20)
+    return mbeta(retrf, ewmktrf, 60, 20)
+}
+
+
+
+defg olsAgg4(Y, X1,X2,X3,X4) {
+    return ols(Y,(X1,X2,X3,X4))[1]
+}
+
+def betaLiquidityPS(ret, ps_innov,mktrf,hml,smb, rf){
+    //Pastor-Stambaugh liquidity beta
+    retrf = ret - rf    
+    BetaLiquidityPS = moving(olsAgg4,(retrf,ps_innov,mktrf,hml,smb), 60, 36)
+    return BetaLiquidityPS
+}
+ /*
+
+ def betaLiquidityPS(ret, ps_innov,mktrf,hml,smb, rf){
+    //Pastor-Stambaugh liquidity beta
+    retrf = ret - rf    
+    BetaLiquidityPS = mbeta( retrf,matrix(ps_innov,mktrf,hml,smb), 60, 36)[0]
+    return BetaLiquidityPS
+}
+*/
+
+def bookLeverage(at, lt, txditc, pstk, pstkrv, pstkl, seq, ceq){
+    //Book leverage (annual)
+    temptxditc = txditc.nullFill(0)
+    tempPS = pstk
+    tempPS = iif(!isValid(tempPS), iif(!isValid(pstkrv), pstkl, pstkrv), tempPS)
+    tempSE = seq
+    tempSE = iif(!isValid(tempSE), iif(!isValid(ceq + tempPS), at - lt, ceq + tempPS), tempSE)
+    return at \ (tempSE + temptxditc - tempPS)
+}
+
+
+
+def cf(ib, dp, mve_c){
+    //Cash-flow to market
+    return (ib + dp) \ mve_c
+}
+
+
+def cash(cheq, atq){
+    //Cash to assets
+    return cheq \ atq
+}
+
+//m_QCompustat.rdq
+
+def cashProd(mve_c, at, che){
+    //Cash productivity
+    return (mve_c - at) \ che
+}
+
+
+def chAssetTurnover(time_avail_m,sale, rect, invt, aco, ppent, intan, ap, lco, lo){
+    //Change in Asset Turnover
+    temp = (rect + invt + aco + ppent + intan - ap - lco - lo)
+    AssetTurnover = sale \ ((temp + stataMoveM(time_avail_m,temp, 12)) \ 2)
+    AssetTurnover = iif(AssetTurnover < 0, NULL, AssetTurnover)
+    return AssetTurnover - stataMoveM(time_avail_m,AssetTurnover, 12)
+}
+
+
+def chEQ(time_avail_m,ceq){
+    //Sustainable Growth
+    return iif(ceq > 0 && stataMoveM(time_avail_m,ceq, 12), ceq \ stataMoveM(time_avail_m,ceq, 12), NULL)
+}
+
+
+
+def chInv(invt, at){
+    //Change in inventory
+    return (invt - move(invt, 12)) \ ((at + move(at, 12)) / 2)
+}
+
+
+
+def chNNCOA(at, act, ivao, lt, dlc, dltt){
+    //Change in Net Noncurrent Operating Assets
+    temp = ((at - act - ivao) - (lt - dlc - dltt)) \ at
+    return  temp - move(temp, 12)
+}
+
+
+
+def chNWC(act, che, lct, dlc, at){
+    //Change in Net Working Capital
+    temp = ((act - che) - (lct - dlc)) \ at
+    return temp - move(temp, 12)
+}
+
+
+def chTax(time_avail_m,txtq, at){
+    //Change in taxes
+    return (txtq - stataMoveM(time_avail_m,txtq, 12)) \ stataMoveM(time_avail_m,at, 12)
+}
+
+
+ 
+
+def compEquIss(time_avail_m,ret,mve_c){
+    //Composite Equity Issuance
+    tempIdx = array(DOUBLE, ret.size())
+    tempIdx[0]=1
+    tempIdx[1:] = cumprod(1+ret[1:])
+    tempBH = (tempIdx - stataMoveM(time_avail_m,tempIdx, 60))\stataMoveM(time_avail_m,tempIdx, 60)
+    compEquIss = log(mve_c \ stataMoveM(time_avail_m,mve_c, 60)) - tempBH
+    return compEquIss
+}
+
+
+def compositeDebtIssuance(time_avail_m,dltt, dlc){
+    //Composite Debt Issuance
+    tempBD = dltt + dlc
+    return log(tempBD \ stataMoveM(time_avail_m,tempBD, 60))
+}
+
+
+
+
+def delCOA(at, act, che){
+    //Change in current operating assets
+    tempAvAT = 0.5 * (at + move(at, 12))
+    DelCOA = (act - che) - (move(act, 12) - move(che, 12))
+    return DelCOA \ tempAvAT
+}
+
+
+def delCOL(at, lct, dlc){
+    //Change in current operating liabilities
+    tempAvAT = 0.5 * (at + move(at, 12))
+    DelCOL = (lct - dlc) - (move(lct, 12) - move(dlc, 12))
+    return DelCOL \ tempAvAT
+}
+
+
+
+def delDRC(drc, at, ceq, sale, sic){
+    //Deferred Revenue
+    //sic type cast
+    DelDRC = (drc - move(drc, 12)) \ (0.5 * (at + move(at, 12)))
+    return iif(ceq <= 0 || (drc == 0 && DelDRC == 0) || sale < 5, NULL, DelDRC)
+}
+
+
+def delEqu(at, ceq){
+    //Change in common equity
+    tempAvAT = 0.5 * (at + move(at, 12))
+    DelEqu = ceq - move(ceq, 12)
+    return DelEqu \ tempAvAT
+}
+
+
+def delLTI(at, ivao){
+    //Change in long-term investment
+    tempAvAT = 0.5 * (at + move(at, 12))
+    DelLTI = ivao - move(ivao, 12)
+    return DelLTI \ tempAvAT
+}
+
+
+
+def delNetFin(at, pstk, ivst, ivao, dltt, dlc){
+    //Change in net financial assets
+    tempAvAT = 0.5 * (at + move(at, 12))
+    tempPSTK = iif(isValid(pstk), pstk, 0)
+    temp = (ivst + ivao) - (dltt + dlc + tempPSTK)
+    return (temp - move(temp, 12)) \ tempAvAT
+}
+
+
+
+def divInit(time_avail_m,exchcd,shrcd,divamt){
+    //Dividend Initiation
+    tempdivamt = nullFill(divamt, 0)
+    divsum = msum(tempdivamt,24,1)
+    temp = tempdivamt > 0 and stataMoveM(time_avail_m,divsum,1)==0
+    initsum = msum(temp,6,1)
+    DivInit = initsum == 1
+    return DivInit
+}
+
+
+
+def divOmit(time_avail_m,exchcd,shrcd,divamt){
+    //Dividend Omission
+    div = nullFill(divamt, 0)
+    divind = div > 0
+    sum3_divind = msum(divind, 3)
+    temppaid = sum3_divind==1
+    mean18_temppaid = mavg(temppaid, 18)
+    temppayer = mean18_temppaid==1
+    omit_3 = (sum3_divind == 0) and (stataMoveM(time_avail_m,sum3_divind, 1) >0) and (stataMoveM(time_avail_m,temppayer,3)==1)
+
+    sum6_divind = msum(divind, 6)
+    temppaid = sum6_divind==1
+    mean18_temppaid = mavg(temppaid, 18)
+    temppayer = mean18_temppaid==1
+    omit_6 = (sum6_divind == 0) and (stataMoveM(time_avail_m,sum6_divind, 1) >0) and (stataMoveM(time_avail_m,temppayer,6)==1)
+
+    sum12_divind = msum(divind, 12)
+    temppaid = sum12_divind==1
+    mean24_temppaid = mavg(temppaid, 24)
+    temppayer = mean24_temppaid==1
+    omit_12 = (sum12_divind == 0) and (stataMoveM(time_avail_m,sum12_divind, 1) >0) and (stataMoveM(time_avail_m,temppayer,12)==1)
+
+    omitnow = (omit_3==1) || (omit_6==1) || (omit_12==1)
+    temp = msum(omitnow,2)
+    DivOmit = temp == 1
+    return DivOmit
+}
+
+
+
+
+def dolVol(time_avail_m,vol, prc){
+    //Past trading volume
+    return log(stataMoveM(time_avail_m,vol, 2) * abs(stataMoveM(time_avail_m,prc, 2)))
+}
+
+
+
+
+
+def ep(time_avail_m,ib, mve_c){
+    //Earnings-to-price ratio
+    EP = ib \ stataMoveM(time_avail_m,mve_c, 6)
+    return iif(EP < 0, NULL, EP)
+}
+
+
+def earningsConsistency(time_avail_m,epspx){
+    //Earnings Consistency
+    temp = (epspx - stataMoveM(time_avail_m,epspx,12)) \ (0.5*(abs(stataMoveM(time_avail_m,epspx, 12)) + abs(stataMoveM(time_avail_m,epspx,24))))
+    temp_12 = stataMoveM(time_avail_m,temp,12)
+    temp_24 = stataMoveM(time_avail_m,temp,24)
+    temp_36 = stataMoveM(time_avail_m,temp,36)
+    temp_48 = stataMoveM(time_avail_m,temp,48)
+    temp = matrix(temp, temp_12, temp_24, temp_36, temp_48)
+    EarningsConsistency = rowAvg(temp)
+    EarningsConsistency = iif(rowMax(abs(stataMoveM(time_avail_m,epspx/epspx,12)) > 6 || (temp > 0 && temp_12 < 0 && isValid(temp))|| (temp < 0  && temp_12 > 0 && isValid(temp))), NULL, EarningsConsistency)
+    return EarningsConsistency
+}
+
+def earningsSurprise(permno, gvkey, time_avail_m, epspxq){
+    GrTemp = epspxq - stataMoveM(time_avail_m,epspxq, 12)
+    temp3 = stataMoveM(time_avail_m,GrTemp, 3)
+    temp6 = stataMoveM(time_avail_m,GrTemp, 6)
+    temp9 = stataMoveM(time_avail_m,GrTemp, 9)
+    temp12 = stataMoveM(time_avail_m,GrTemp, 12)
+    temp15 = stataMoveM(time_avail_m,GrTemp, 15)
+    temp18 = stataMoveM(time_avail_m,GrTemp, 18)
+    temp21 = stataMoveM(time_avail_m,GrTemp, 21)
+    temp24 = stataMoveM(time_avail_m,GrTemp, 24)
+
+    Drift = rowAvg(matrix(temp3, temp6, temp9, temp12, temp15, temp18, temp21, temp24))
+    EarningsSurprise = epspxq - stataMoveM(time_avail_m,epspxq, 12) - Drift
+
+    temp3 = stataMoveM(time_avail_m,EarningsSurprise, 3)
+    temp6 = stataMoveM(time_avail_m,EarningsSurprise, 6)
+    temp9 = stataMoveM(time_avail_m,EarningsSurprise, 9)
+    temp12 = stataMoveM(time_avail_m,EarningsSurprise, 12)
+    temp15 = stataMoveM(time_avail_m,EarningsSurprise, 15)
+    temp18 = stataMoveM(time_avail_m,EarningsSurprise, 18)
+    temp21 = stataMoveM(time_avail_m,EarningsSurprise, 21)
+    temp24 = stataMoveM(time_avail_m,EarningsSurprise, 24)
+
+    SD = rowStd(matrix(temp3, temp6, temp9, temp12, temp15, temp18, temp21, temp24))
+    EarningsSurprise = EarningsSurprise/SD
+    return  EarningsSurprise
+}
+
+
+def earnSupBig(permno, time_avail_m, mve_c, EarningsSurprise, tempFF48){
+    //Industry Earnings surprise big companies
+    data1 = table(permno, time_avail_m, mve_c, EarningsSurprise, tempFF48)
+    data1 = select *, rank(mve_c, percent = true) as tempRK from data1 context by tempFF48, time_avail_m order by tempFF48, time_avail_m
+
+    data2 = select * from data1 where tempRK > 0.7 and tempRK is not null
+
+    data2 = select *, mean(EarningsSurprise) as EarnSupBig from data2 context by tempFF48, time_avail_m limit 1 
+
+    data3 = select * from data1 left join data2 on data1.tempFF48 = data2.tempFF48 and data1.time_avail_m = data2.time_avail_m
+    result = select permno, time_avail_m, iif(tempRK > 0.7, NULL, EarnSupBig) as EarnSupBig from data3
+
+    return result
+}
+
+def equityDuration(gvkey, time_avail_m, fyear, datadate, ceq, ib, sale, prcc_f, csho){
+    //Equity Duration
+    tempRoE = ib \ move(ceq, 1)
+    temp_g_eq = (sale \ move(sale, 1))-1 
+    tempCD = move(ceq, 1) * (tempRoE - temp_g_eq)
+
+    tempRoE1 = 0.57 * tempRoE + 0.12 * (1 - 0.57)
+    temp_g_eq1 = 0.24 * temp_g_eq + 0.06 * (1 - 0.24)
+    tempBV1 = ceq * (1 + temp_g_eq1)
+    tempCD1 = ceq - tempBV1 + ceq * tempRoE1
+
+    tempROE2 = 0.57 * tempRoE1 + 0.12 * (1 - 0.57)
+    temp_g_eq2 = 0.24 * temp_g_eq1 + 0.06 * (1 - 0.24)
+    tempBV2 = tempBV1 * (1 + temp_g_eq2)
+    tempCD2 = tempBV1 - tempBV2 + tempBV1 * tempROE2
+
+    tempROE3 = 0.57 * tempROE2 + 0.12 * (1 - 0.57)
+    temp_g_eq3 = 0.24 * temp_g_eq2 + 0.06 * (1 - 0.24)
+    tempBV3 = tempBV2 * (1 + temp_g_eq3)
+    tempCD3 = tempBV2 - tempBV3 + tempBV2 * tempROE3
+
+    tempROE4 = 0.57 * tempROE3 + 0.12 * (1 - 0.57)
+    temp_g_eq4 = 0.24 * temp_g_eq3 + 0.06 * (1 - 0.24)
+    tempBV4 = tempBV3 * (1 + temp_g_eq4)
+    tempCD4 = tempBV3 - tempBV4 + tempBV3 * tempROE4
+
+    tempROE5 = 0.57 * tempROE4 + 0.12 * (1 - 0.57)
+    temp_g_eq5 = 0.24 * temp_g_eq4 + 0.06 * (1 - 0.24)
+    tempBV5 = tempBV4 * (1 + temp_g_eq5)
+    tempCD5 = tempBV4 - tempBV5 + tempBV4 * tempROE5
+
+    tempROE6 = 0.57 * tempROE5 + 0.12 * (1 - 0.57)
+    temp_g_eq6 = 0.24 * temp_g_eq5 + 0.06 * (1 - 0.24)
+    tempBV6 = tempBV5 * (1 + temp_g_eq6)
+    tempCD6 = tempBV5 - tempBV6 + tempBV5 * tempROE6
+    
+    tempROE7 = 0.57 * tempROE6 + 0.12 * (1 - 0.57)
+    temp_g_eq7 = 0.24 * temp_g_eq6 + 0.06 * (1 - 0.24)
+    tempBV7 = tempBV6 * (1 + temp_g_eq7)
+    tempCD7 = tempBV6 - tempBV7 + tempBV6 * tempROE7
+
+    tempROE8 = 0.57 * tempROE7 + 0.12 * (1 - 0.57)
+    temp_g_eq8 = 0.24 * temp_g_eq7 + 0.06 * (1 - 0.24)
+    tempBV8 = tempBV7 * (1 + temp_g_eq8)
+    tempCD8 = tempBV7 - tempBV8 + tempBV7 * tempROE8
+
+    tempROE9 = 0.57 * tempROE8 + 0.12 * (1 - 0.57)
+    temp_g_eq9 = 0.24 * temp_g_eq8 + 0.06 * (1 - 0.24)
+    tempBV9 = tempBV8 * (1 + temp_g_eq9)
+    tempCD9 = tempBV8 - tempBV9 + tempBV8 * tempROE9
+
+    tempROE10 = 0.57 * tempROE9 + 0.12 * (1 - 0.57)
+    temp_g_eq10 = 0.24 * temp_g_eq9 + 0.06 * (1 - 0.24)
+    tempBV10 = tempBV9 * (1 + temp_g_eq10)
+    tempCD10 = tempBV9 - tempBV10 + tempBV9 * tempROE10
+
+    MD_Part1 = 1*tempCD1\(1+0.12) + 2*tempCD2\pow(1+0.12,2) + 3*tempCD3\pow(1+0.12,3)+(4*tempCD4)\pow(1+0.12,4)+(5*tempCD5)\pow(1+0.12,5)+(6*tempCD6)\pow(1+0.12,6)+(7*tempCD7)\pow(1+0.12,7)+(8*tempCD8)\pow(1+0.12,8)+(9*tempCD9)\pow(1+0.12,9)+(10*tempCD10)\pow(1+0.12,10)
+
+    PV_Part1 = tempCD1\(1+0.12) + tempCD2\pow(1+0.12,2) + (tempCD3)\pow(1+0.12,3)+(tempCD4)\pow(1+0.12,4)+(tempCD5)\pow(1+0.12,5)+(tempCD6)\pow(1+0.12,6)+(tempCD7)\pow(1+0.12,7)+(tempCD8)\pow(1+0.12,8)+(tempCD9)\pow(1+0.12,9)+(tempCD10)\pow(1+0.12,10)
+
+    tempME = prcc_f*csho
+
+    tempED = MD_Part1 \ tempME + (10 + (1+0.12)\0.12)*(1-PV_Part1\tempME)
+
+    return tempED
+}
+
+
+
+
+def exchSwitch(exchcd){
+    //Exchange Switch
+    ExchSwitch = ((exchcd == 1 && (move(exchcd, 1) == 2 || move(exchcd, 2) == 2 ||
+                move(exchcd, 3) == 2 || move(exchcd, 4) == 2 || move(exchcd, 5) == 2 ||
+                move(exchcd, 6) == 2 || move(exchcd, 7) == 2 || move(exchcd, 8) == 2 ||
+                move(exchcd, 9) == 2 || move(exchcd, 10) == 2 || move(exchcd, 11) == 2 ||
+                move(exchcd, 12) == 2 || move(exchcd, 1) == 3 || move(exchcd, 2) == 3 ||
+                move(exchcd, 3) == 3 || move(exchcd, 4) == 3 || move(exchcd, 5) == 3 ||
+                move(exchcd, 6) == 3 || move(exchcd, 7) == 3 || move(exchcd, 8) == 3 ||
+                move(exchcd, 9) == 3 || move(exchcd, 10) == 3 || move(exchcd, 11) == 3 ||
+                move(exchcd, 12) == 3)) ||
+                (exchcd == 2 && (move(exchcd, 1) == 3 || move(exchcd, 2) == 3 ||
+                move(exchcd, 3) == 3 || move(exchcd, 4) == 3 || move(exchcd, 5) == 3 ||
+                move(exchcd, 6) == 3 || move(exchcd, 7) == 3 || move(exchcd, 8) == 3 ||
+                move(exchcd, 9) == 3 || move(exchcd, 10) == 3 || move(exchcd, 11) == 3 ||
+                move(exchcd, 12) == 3)))
+    return ExchSwitch
+}
+
+
+
+def firmAge(gvkey, permno, time_avail_m, exchcd){
+    //Firm Age
+    tmp = table(gvkey, permno, time_avail_m, exchcd)
+    tmp = select *, rowNo(exchcd)+1 as FirmAge from tmp context by permno
+    base_date = date(1926.07.01)
+    tmp['tempcrsptime'] = date(time_avail_m) - base_date+1
+    FirmAge = iif(tmp['FirmAge']==tmp['tempcrsptime'], NULL, tmp['FirmAge'])
+    return FirmAge
+}
+                                                       
+
+def firmAgeMom(permno, time_avail_m, ret, prc){
+    //Firm Age - Momentum
+    FirmAgeMom = ((1+move(ret,1))*(1+move(ret,2))*(1+move(ret,3))*(1+move(ret,4))*(1+move(ret,5))) - 1
+    FirmAgeMom = iif(abs(prc) < 5, NULL, FirmAgeMom)
+    tempage = contextby(rowNo, FirmAgeMom, [permno,time_avail_m])
+    tmp = table(tempage, time_avail_m)
+    temp = exec rank(tempage, groupNum=5)+1 from tmp context by time_avail_m
+    FirmAgeMom = iif(temp>1&&isValid(temp), NULL, FirmAgeMom)
+    return FirmAgeMom
+}
+
+
+def gp(revt, cogs, at){
+    //Gross profitability
+    return (revt - cogs) \ at
+}
+
+
+
+
+def grLTNOA(time_avail_m,rect, invt, ppent, aco, intan, ao, ap, lco, lo, at, dp){
+    //Growth in long term net operating assets
+    GrLTNOA = (rect + invt + ppent + aco + intan + ao - ap - lco - lo) \ at -
+                (stataMoveM(time_avail_m,rect, 12) + stataMoveM(time_avail_m,invt, 12) + stataMoveM(time_avail_m,ppent, 12) + stataMoveM(time_avail_m,aco, 12) + stataMoveM(time_avail_m,intan, 12) +
+                stataMoveM(time_avail_m,ao, 12) - stataMoveM(time_avail_m,ap, 12) - stataMoveM(time_avail_m,lco, 12) - stataMoveM(time_avail_m,lo, 12)) \ stataMoveM(time_avail_m,at, 12) -
+                (rect - stataMoveM(time_avail_m,rect, 12) + invt - stataMoveM(time_avail_m,invt, 12) + aco - stataMoveM(time_avail_m,aco, 12) -
+                (ap - stataMoveM(time_avail_m,ap, 12) + lco - stataMoveM(time_avail_m,lco, 12)) - dp) \ ((at + stataMoveM(time_avail_m,at, 12)) \ 2)
+    return  GrLTNOA
+}
+
+
+
+def grSaleToGrInv(time_avail_m,sale, invt){
+    //Sales growth over inventory growth
+    GrSaleToGrInv = ((sale - (0.5 * (stataMoveM(time_avail_m,sale, 12) + stataMoveM(time_avail_m,sale, 24)))) \
+                    (0.5 * (stataMoveM(time_avail_m,sale, 12) + stataMoveM(time_avail_m,sale, 24)))) - 
+                    ((invt - (0.5 * (stataMoveM(time_avail_m,invt, 12) + stataMoveM(time_avail_m,invt, 24)))) \ 
+                    (0.5 * (stataMoveM(time_avail_m,invt, 12) + stataMoveM(time_avail_m,invt, 24))))
+    return iif(isValid(GrSaleToGrInv), GrSaleToGrInv,
+            ((sale - stataMoveM(time_avail_m,sale, 12)) \ stataMoveM(time_avail_m,sale, 12)) -
+            ((invt - stataMoveM(time_avail_m,invt, 12)) \ stataMoveM(time_avail_m,invt, 12)))
+}
+
+
+
+def grSaleToGrOverhead(time_avail_m,sale, xsga){
+    //Sales growth over overhead growth
+    GrSaleToGrOverhead = ((sale - (0.5 * (stataMoveM(time_avail_m,sale, 12) + stataMoveM(time_avail_m,sale, 24)))) \
+                    (0.5 * (stataMoveM(time_avail_m,sale, 12) + stataMoveM(time_avail_m,sale, 24)))) - 
+                    ((xsga - (0.5 * (stataMoveM(time_avail_m,xsga, 12) + stataMoveM(time_avail_m,xsga, 24)))) \ 
+                    (0.5 * (stataMoveM(time_avail_m,xsga, 12) + stataMoveM(time_avail_m,xsga, 24))))
+    return iif(isValid(GrSaleToGrOverhead), GrSaleToGrOverhead,
+            ((sale - stataMoveM(time_avail_m,sale, 12)) \ stataMoveM(time_avail_m,sale, 12)) -
+            ((xsga - stataMoveM(time_avail_m,xsga, 12)) \ stataMoveM(time_avail_m,xsga, 12)))
+}
+
+
+
+
+def intMom(time_avail_m,ret){
+    //Intermediate Momentum
+    return ((1 + stataMoveM(time_avail_m,ret, 7)) * (1 + stataMoveM(time_avail_m,ret, 8)) * (1 + stataMoveM(time_avail_m,ret, 9)) *
+            (1 + stataMoveM(time_avail_m,ret, 10)) * (1 + stataMoveM(time_avail_m,ret, 11)) * (1 + stataMoveM(time_avail_m,ret, 12))) - 1
+}
+
+
+
+
+def investPPEInv(time_avail_m,at, ppegt, invt){
+    //PPE and inventory changes to assets
+    tempPPE = ppegt - stataMoveM(time_avail_m,ppegt, 12)
+    tempInv = invt - stataMoveM(time_avail_m,invt, 12)
+    return (tempPPE + tempInv) \ stataMoveM(time_avail_m,at, 12)
+}
+
+
+
+def investment(permno, revt, capx){
+    //Investment
+    Investment = capx/revt
+    temp = table(permno, Investment)
+    tempMean = exec mavg(Investment, window = 36, minPeriods = 24) from temp context by permno
+    Investment = Investment\tempMean
+    Investment = iif(revt<10, NULL, Investment)
+    return Investment
+}
+
+
+
+def lRreversal(time_avail_m,ret){
+    //Long-run reversal
+    return ((1 + stataMoveM(time_avail_m,ret, 13)) * (1 + stataMoveM(time_avail_m,ret, 14)) * (1 + stataMoveM(time_avail_m,ret, 15)) *
+            (1 + stataMoveM(time_avail_m,ret, 16)) * (1 + stataMoveM(time_avail_m,ret, 17)) * (1 + stataMoveM(time_avail_m,ret, 18)) *
+            (1 + stataMoveM(time_avail_m,ret, 19)) * (1 + stataMoveM(time_avail_m,ret, 20)) * (1 + stataMoveM(time_avail_m,ret, 21)) *
+            (1 + stataMoveM(time_avail_m,ret, 22)) * (1 + stataMoveM(time_avail_m,ret, 23)) * (1 + stataMoveM(time_avail_m,ret, 24)) *
+            (1 + stataMoveM(time_avail_m,ret, 25)) * (1 + stataMoveM(time_avail_m,ret, 26)) * (1 + stataMoveM(time_avail_m,ret, 27)) *
+            (1 + stataMoveM(time_avail_m,ret, 28)) * (1 + stataMoveM(time_avail_m,ret, 29)) * (1 + stataMoveM(time_avail_m,ret, 30)) *
+            (1 + stataMoveM(time_avail_m,ret, 31)) * (1 + stataMoveM(time_avail_m,ret, 32)) * (1 + stataMoveM(time_avail_m,ret, 33)) *
+            (1 + stataMoveM(time_avail_m,ret, 34)) * (1 + stataMoveM(time_avail_m,ret, 35)) * (1 + stataMoveM(time_avail_m,ret, 36))) - 1
+}
+
+
+
+def leverage(lt, mve_c){
+    //Market Leverage
+    return lt \ mve_c
+}
+
+
+def mRreversal(time_avail_m,ret){
+    //Momentum-Reversal
+    ret0= nullFill(ret,0)
+    return ((1 + stataMoveM(time_avail_m,ret0, 13)) * (1 + stataMoveM(time_avail_m,ret0, 14)) * (1 + stataMoveM(time_avail_m,ret0, 15)) *
+            (1 + stataMoveM(time_avail_m,ret0, 16)) * (1 + stataMoveM(time_avail_m,ret0, 17)) * (1 + stataMoveM(time_avail_m,ret0, 18))) - 1
+}
+
+
+
+def meanRankRevGrowth1(revt){
+    //Average Revenue Growth
+    temp = log(revt) - log(move(revt, 12))
+    return temp
+}
+def meanRankRevGrowth2(tempRank){
+    //Average Revenue Growth
+    MeanRankRevGrowth = (5*tempRank.move(12) + 4*tempRank.move(24)+ 3*tempRank.move(36) + 2*tempRank.move(48) + tempRank.move(60))\15
+    return MeanRankRevGrowth
+}
+
+
+def mom12m(ret){
+    //Twelve month momentum
+    return ((1 + move(ret, 1)) * (1 + move(ret, 2)) * (1 + move(ret, 3)) *
+            (1 + move(ret, 4)) * (1 + move(ret, 5)) * (1 + move(ret, 6)) *
+            (1 + move(ret, 7)) * (1 + move(ret, 8)) * (1 + move(ret, 9)) *
+            (1 + move(ret, 10)) * (1 + move(ret, 11))) - 1
+}
+
+
+
+def mom12mOffSeason(time_avail_m, permno, ret){
+    //Momentum without Seasonal Part
+    ret0 = iif(isValid(ret), ret, 0)
+    Mom12 = mavg(ret0, window = 9, minPeriods = 6)
+    Mom12mOffSeason = prev(Mom12)
+    return Mom12mOffSeason
+}
+
+
+
+def mom6m(time_avail_m,ret){
+    //Six month momentum
+    return ((1 + stataMoveM(time_avail_m,ret, 1)) * (1 + stataMoveM(time_avail_m,ret, 2)) * (1 + stataMoveM(time_avail_m,ret, 3)) *
+            (1 + stataMoveM(time_avail_m,ret, 4)) * (1 + stataMoveM(time_avail_m,ret, 5))) - 1
+}
+
+
+
+
+def momOffSeason(time_avail_m,ret){
+    //Off-season long-term reversal
+    //ret = SignalMasterTable.ret
+    //permno = SignalMasterTable.permno
+    ret0 = ret.nullFill(0)
+    temp23 =stataMoveM(time_avail_m,ret0,23)
+    temp35 =stataMoveM(time_avail_m,ret0,35)
+    temp47 =stataMoveM(time_avail_m,ret0,47)
+    temp59 =stataMoveM(time_avail_m,ret0,59)
+    // Generate lagged return variables and calculate row total and non-missing count
+    retTemp1 = rowSum(temp23, temp35, temp47, temp59)
+    retTemp2 = 4-(isNull(temp23)+ isNull(temp35) + isNull(temp47) + isNull(temp59))
+
+    retLagTemp =stataMoveM(time_avail_m,ret0,12)
+    retLagTemp_sum48 = msum(retLagTemp, 48)
+    retLagTemp_count48 = mcount(retLagTemp, 48)
+    MomOffSeason = (retLagTemp_sum48 - retTemp1)\(retLagTemp_count48 - retTemp2)
+    return MomOffSeason
+}
+
+
+
+def momOffSeason06YrPlus(time_avail_m,ret){
+    //Off-season reversal years 6 to 10
+    ret0 = nullFill(ret,0)
+    temp71 = stataMoveM(time_avail_m,ret0,71)
+    temp83 = stataMoveM(time_avail_m,ret0,83) 
+    temp95 = stataMoveM(time_avail_m,ret0,95)
+    temp107 = stataMoveM(time_avail_m,ret0,107)
+    temp119 = stataMoveM(time_avail_m,ret0,119) 
+
+    retTemp1 = rowSum(temp71, temp83, temp95, temp107, temp119)
+    retTemp2 = 5-(isNull(temp71) + isNull(temp83) + isNull(temp95) + isNull(temp107) + isNull(temp119))
+
+    retLagTemp = stataMoveM(time_avail_m,ret0,60)
+    retLagTemp_sum60 = msum(retLagTemp, window = 60)
+    retLagTemp_count60 = mcount(retLagTemp, window = 60)
+    MomOffSeason06YrPlus = (retLagTemp_sum60 - retTemp1)\(retLagTemp_count60 - retTemp2)
+    return MomOffSeason06YrPlus
+}
+
+
+def momOffSeason11YrPlus(time_avail_m,ret){
+    //Off season reversal years 11 to 15
+    ret0 = nullFill(ret, 0)
+    temp131 =  stataMoveM(time_avail_m,ret0,131) 
+    temp143 =  stataMoveM(time_avail_m,ret0,143) 
+    temp155 =  stataMoveM(time_avail_m,ret0,155) 
+    temp167 =  stataMoveM(time_avail_m,ret0,167) 
+    temp179 =  stataMoveM(time_avail_m,ret0,179) 
+
+    retTemp1 = rowSum(temp131, temp143, temp155, temp167, temp179)
+    retTemp2 = 5-(isNull(temp131) + isNull(temp143) + isNull(temp155) + isNull(temp167) + isNull(temp179))
+
+    retLagTemp =  stataMoveM(time_avail_m,ret0,120) 
+    retLagTemp_sum60 =  msum(retLagTemp, window = 60)
+    retLagTemp_count60 =  mcount(retLagTemp, window = 60)
+    MomOffSeason11YrPlus = (retLagTemp_sum60 - retTemp1)\(retLagTemp_count60 - retTemp2)
+    return MomOffSeason11YrPlus
+}
+
+
+
+def momOffSeason16YrPlus(time_avail_m,ret){
+    //Off season reversal years 16 to 20
+    ret0 = nullFill(ret, 0)
+    temp191 =  stataMoveM(time_avail_m,ret0,191) 
+    temp203 =  stataMoveM(time_avail_m,ret0,203) 
+    temp215 =  stataMoveM(time_avail_m,ret0,215) 
+    temp227 =  stataMoveM(time_avail_m,ret0,227) 
+    temp239 =  stataMoveM(time_avail_m,ret0,239) 
+    
+    retTemp1 = rowSum(temp191, temp203, temp215, temp227, temp239)
+    retTemp2 = 5-(isNull(temp191) + isNull(temp203) + isNull(temp215) + isNull(temp227) + isNull(temp239))
+
+    retLagTemp =  stataMoveM(time_avail_m,ret0,180) 
+    retLagTemp_sum60 =  msum(retLagTemp, window = 60)
+    retLagTemp_count60 =  mcount(retLagTemp, window = 60) 
+    MomOffSeason16YrPlus = (retLagTemp_sum60 - retTemp1)\(retLagTemp_count60 - retTemp2)
+    return MomOffSeason16YrPlus
+}
+
+
+//group by time, 对于permno 分成5组 按照mom6m 
+def momRev(ret, time_avail_m, permno){
+    temp= table(permno, time_avail_m, ret)
+    temp= select *, ret0 = nullFill(ret, 0) from temp
+    temp= select *,
+        Mom6m = ((1 + tmove(time_avail_m,ret0, 1M)) * (1 + tmove(time_avail_m,ret0, 2M)) * (1 + tmove(time_avail_m,ret0, 3M)) *
+                (1 + tmove(time_avail_m,ret0, 4M)) * (1 + tmove(time_avail_m,ret0, 5M))) - 1,
+        Mom36m = ((1 + tmove(time_avail_m, ret0, 13M)) * (1 + tmove(time_avail_m, ret0, 14M)) * (1 + tmove(time_avail_m, ret0, 15M)) *
+            (1 + tmove(time_avail_m, ret0, 16M)) * (1 + tmove(time_avail_m, ret0, 17M)) * (1 + tmove(time_avail_m, ret0, 18M)) *
+            (1 + tmove(time_avail_m, ret0, 19M)) * (1 + tmove(time_avail_m, ret0, 20M)) * (1 + tmove(time_avail_m, ret0, 21M)) *
+            (1 + tmove(time_avail_m, ret0, 22M)) * (1 + tmove(time_avail_m, ret0, 23M)) * (1 + tmove(time_avail_m, ret0, 24M)) *
+            (1 + tmove(time_avail_m, ret0, 25M)) * (1 + tmove(time_avail_m, ret0, 26M)) * (1 + tmove(time_avail_m, ret0, 27M)) *
+            (1 + tmove(time_avail_m, ret0, 28M)) * (1 + tmove(time_avail_m, ret0, 29M)) * (1 + tmove(time_avail_m, ret0, 30M)) *
+            (1 + tmove(time_avail_m, ret0, 31M)) * (1 + tmove(time_avail_m, ret0, 32M)) * (1 + tmove(time_avail_m, ret0, 33M)) *
+            (1 + tmove(time_avail_m, ret0, 34M)) * (1 + tmove(time_avail_m, ret0, 35M)) * (1 + tmove(time_avail_m, ret0, 36M))) - 1
+        from temp context by permno
+    temp = select *, asof(quantileSeries(Mom6m,[0,0.2,0.4,0.6,0.8],interpolation='midpoint'),Mom6m) as tempMom6 from temp where Mom6m is not null context by time_avail_m order by permno, time_avail_m 
+    update temp set tempMom6 = tempMom6+1
+    temp = select *, asof(quantileSeries(Mom36m,[0,0.2,0.4,0.6,0.8],interpolation='midpoint') ,Mom36m) as tempMom36 from temp where Mom36m is not null context by time_avail_m order by permno, time_avail_m
+    update temp set tempMom36 = tempMom36+1
+    temp = select permno,time_avail_m, iif(temp.tempMom6==5 && temp.tempMom36==1, 1, iif(temp.tempMom6==1 && temp.tempMom36==5, 0, NULL)) as MomRev from temp  order by permno, time_avail_m
+
+    return (temp.permno,temp.time_avail_m,temp.MomRev)
+}
+
+
+
+def momSeason(time_avail_m,ret){
+    //Return Seasonality (years 2 to 5)
+    ret0 = nullFill(ret,0)
+    temp23 = stataMoveM(time_avail_m,ret0,23)
+    temp35 = stataMoveM(time_avail_m,ret0,35)
+    temp47 = stataMoveM(time_avail_m,ret0,47)
+    temp59 = stataMoveM(time_avail_m,ret0,59)
+
+    retTemp1 = rowSum(temp23, temp35, temp47, temp59)
+    retTemp2 = 4-(isNull(temp23) + isNull(temp35) + isNull(temp47) + isNull(temp59))
+
+    MomSeason = retTemp1\retTemp2
+    return MomSeason
+}
+
+
+def momSeason06YrPlus(time_avail_m,ret){
+    //Off-season reversal years 6 to 10
+    ret0 = nullFill(ret,0)
+    temp71 = stataMoveM(time_avail_m,ret0,71)
+    temp83 = stataMoveM(time_avail_m,ret0,83)
+    temp95 = stataMoveM(time_avail_m,ret0,95)
+    temp107 = stataMoveM(time_avail_m,ret0,107)
+    temp119 = stataMoveM(time_avail_m,ret0,119)
+
+    retTemp1 = rowSum(temp71, temp83, temp95, temp107, temp119)
+    retTemp2 = 5-(isNull(temp71) + isNull(temp83) + isNull(temp95) + isNull(temp107) + isNull(temp119))
+
+    MomSeason06YrPlus = retTemp1\retTemp2
+    return MomSeason06YrPlus
+}
+
+def momSeason11YrPlus(time_avail_m,ret){
+    //Return Seasonality (11-15)
+    ret0 = nullFill(ret,0)
+    temp131 = stataMoveM(time_avail_m,ret0,131)
+    temp143 = stataMoveM(time_avail_m,ret0,143)
+    temp155 = stataMoveM(time_avail_m,ret0,155)
+    temp167 = stataMoveM(time_avail_m,ret0,167)
+    temp179 = stataMoveM(time_avail_m,ret0,179)
+
+    retTemp1 = rowSum(temp131, temp143, temp155, temp167, temp179)
+    retTemp2 = 5-(isNull(temp131) + isNull(temp143) + isNull(temp155) + isNull(temp167) + isNull(temp179))
+
+    MomSeason11YrPlus = retTemp1\retTemp2
+    return MomSeason11YrPlus
+}
+
+
+
+def momSeason16YrPlus(time_avail_m,ret){
+    //Return Seasonality (16-20)
+    ret0 = nullFill(ret, 0)
+    temp191 = stataMoveM(time_avail_m,ret0,191)
+    temp203 = stataMoveM(time_avail_m,ret0,203)
+    temp215 = stataMoveM(time_avail_m,ret0,215)
+    temp227 = stataMoveM(time_avail_m,ret0,227)
+    temp239 = stataMoveM(time_avail_m,ret0,239)
+    
+    retTemp1 = rowSum(temp191, temp203, temp215, temp227, temp239)
+    retTemp2 = 5-(isNull(temp191) + isNull(temp203) + isNull(temp215) + isNull(temp227) + isNull(temp239))
+
+    MomSeason16YrPlus = retTemp1\retTemp2
+    return MomSeason16YrPlus
+}
+
+
+
+def momSeasonShort(time_avail_m,ret){
+    //Return seasonality last year
+    return stataMoveM(time_avail_m,ret, 11)
+}
+
+
+
+def momVol1(vol, ret, time_avail_m,permno){
+    //Momentum among high volume stocks
+    vol0 = iif(vol < 0, NULL, vol)
+    Mom6m =((1 + stataMoveM(time_avail_m,ret, 1)) * (1 + stataMoveM(time_avail_m,ret, 2)) * (1 + stataMoveM(time_avail_m,ret, 3)) *   (1 + stataMoveM(time_avail_m,ret, 4)) * (1 + stataMoveM(time_avail_m,ret, 5))) - 1 
+    return vol0,Mom6m
+}
+def momVol2(vol0,Mom6m){
+    //Momentum among high volume stocks
+    catMom= asof(quantileSeries(Mom6m,[0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],interpolation='midpoint'),Mom6m)+1
+    catMom= iif(catMom==11,NULL,catMom)
+    return catMom
+}
+def momVol3(temp){
+    //Momentum among high volume stocks
+    catVol=asof(quantileSeries(temp, [0, 1/3,2/3],interpolation='midpoint'),temp)+1
+    catVol= iif(catVol==3,NULL,catVol)
+    return catVol
+}
+
+
+
+def netDebtFinance(time_avail_m,dlcch, dltis, dltr, at){
+    //Net Debt Finance
+    dlcch0 = nullFill(dlcch, 0)
+    NetDebtFinance = (dltis - dltr + dlcch0) \ (0.5 * (at + stataMoveM(time_avail_m,at, 12)))
+    return iif(abs(NetDebtFinance) > 1, NULL, NetDebtFinance)
+}
+
+
+
+def netDebtPrice(at, dltt, dlc, pstk, dvpa, tstkp, che, sic, ib, csho, ceq, prcc_f, mve_c, time_avail_m,permno){
+    //Net debt to price ratio
+    tmp = table(dltt, dlc, pstk, dvpa, tstkp, che, mve_c, at, ib, csho, ceq, prcc_f, time_avail_m,permno)
+    tmp= select *,NetDebtPrice = ((dltt + dlc + pstk + dvpa - tstkp) - che) \ mve_c from tmp
+    tmp= select *, NetDebtPrice1 = iif(!isValid(at) || !isValid(ib) || !isValid(csho) || !isValid(ceq) ||
+                    !isValid(prcc_f) || (sic >= 6000 && sic <= 6999),
+                    NULL, NetDebtPrice),BM = log(ceq \ mve_c) from tmp
+    tmp= select *, tempsort = iif(asof(quantileSeries(BM,[0,0.2,0.4,0.6,0.8],interpolation='midpoint'),BM)+1==6,NULL,asof(quantileSeries(BM,[0,0.2,0.4,0.6,0.8],interpolation='midpoint'),BM)+1) from tmp context by time_avail_m 
+    tmp= select permno,time_avail_m ,iif(tempsort<=2, NULL , NetDebtPrice1) as NetDebtPrice2 from tmp
+    return (tmp.permno,tmp.time_avail_m,tmp.NetDebtPrice2)
+}
+
+def netEquityFinance(time_avail_m,sstk, prstkc, at,dv){
+    //Net Equity Finance
+    NetEquityFinance = (sstk - prstkc-dv) \ (0.5 * (at + stataMoveM(time_avail_m,at, 12)))
+    return iif(abs(NetEquityFinance) > 1, NULL, NetEquityFinance)
+}
+
+
+
+def netPayoutYield(time_avail_m,dvc, prstkc, sstk, mve_c, sic, ceq){
+    //Net Payout Yield
+    NetPayoutYield = (dvc + prstkc - sstk) \ stataMoveM(time_avail_m,mve_c, 6)
+    // dropna
+    NetPayoutYield = iif(NetPayoutYield==0, NULL, NetPayoutYield)
+    NetPayoutYield =  iif((int(sic) < 6000 || int(sic) >= 7000) && ceq > 0, NetPayoutYield, NULL)
+    return NetPayoutYield
+}
+
+
+
+def numEarnIncrease(time_avail_m,ibq){
+    //Number of consecutive earnings increases
+            chearn = ibq - stataMoveM(time_avail_m,ibq,12)
+            nincr = take(0,rows(ibq))
+            con=each(stataBigger,chearn,0)
+            con3=each(stataBigger,stataMoveM(time_avail_m,chearn, 3),0)
+            con6=each(stataBigger,stataMoveM(time_avail_m,chearn, 6),0)
+            con9=each(stataBigger,stataMoveM(time_avail_m,chearn, 9),0)
+            con12=each(stataBigger,stataMoveM(time_avail_m,chearn, 12),0)
+            con15=each(stataBigger,stataMoveM(time_avail_m,chearn, 15),0)
+            con18=each(stataBigger,stataMoveM(time_avail_m,chearn, 18),0)
+            con21=each(stataBigger,stataMoveM(time_avail_m,chearn, 21),0)
+            nincr = iif(con && each(stataEbigger,0,stataMoveM(time_avail_m,chearn, 3)), 1, nincr)
+            nincr = iif(con && con3 && each(stataEbigger,0,stataMoveM(time_avail_m,chearn, 6)), 2, nincr)
+            nincr = iif(con && con3 && con6 && each(stataEbigger,0,stataMoveM(time_avail_m,chearn, 9)), 3, nincr)
+            nincr = iif(con && con3 && con6 && con9 && each(stataEbigger,0,stataMoveM(time_avail_m,chearn, 12)), 4, nincr)
+            nincr = iif(con && con3 && con6 && con9 && con12 && each(stataEbigger,0,stataMoveM(time_avail_m,chearn, 15)), 5, nincr)
+            nincr = iif(con && con3 && con6 && con9 && con12 && con15 && each(stataEbigger,0,stataMoveM(time_avail_m,chearn, 18)), 6, nincr)
+            nincr = iif(con && con3 && con6 && con9 && con12 && con15 && con18 && each(stataEbigger,0,stataMoveM(time_avail_m,chearn, 21)), 7, nincr)
+            nincr = iif(con && con3 && con6 && con9 && con12 && con15 && con18 && con21 && each(stataEbigger,0,stataMoveM(time_avail_m,chearn, 24)), 8, nincr)
+            return nincr
+    }
+
+
+
+def opLeverage(xsga, cogs, at){
+    //Operating Leverage
+    tempxsga = iif(isValid(xsga), xsga, 0)
+    return (tempxsga + cogs) \ at
+}
+
+
+
+
+def operProf(revt, cogs, xsga, xint, ceq, mve_c, time_avail_m){
+    //Operating Profitability
+    t = table(revt, cogs, xsga, xint, ceq, mve_c, time_avail_m)
+    t= select tempprof = (revt - cogs - xsga - xint) \ ceq, mve_c from t
+    t= select *,tempsizeq = asof(quantileSeries(mve_c, [0,1\3,2\3]),mve_c) from t context by time_avail_m
+    OperProf = exec iif(tempsizeq==1,NULL,tempprof) from t 
+    return OperProf
+}
+
+
+
+def orderBacklog(at, ob){
+    //Order Backlog
+    return iif(ob == 0, NULL, ob \ (0.5 * (at + move(at, 12))))
+}
+
+
+def orderBacklogChg(at, ob){
+    //Change in Order Backlog to Assets
+    OrderBacklog = iif(ob == 0, NULL, ob \ (0.5 * (at + move(at, 12))))
+    return OrderBacklog - move(OrderBacklog, 12)
+}
+
+
+def pSQ1(foptyq,oancfyq,ibq,atq,dlttq,actq,lctq,txtq,xintq,saleq,ceqq,shrout,mve_c,time_avail_m){
+    //Piotroski F-score (quarterly)
+    tmpfoptyq = foptyq.nullFill(oancfyq)
+    p1 = iif(ibq>0||isValid(ibq),1,0)
+    p2 = iif((oancfyq>0 && isValid(oancfyq))|| (!isValid(oancfyq)&&isValid(tmpfoptyq)&&tmpfoptyq>0),1,0)
+    p3 = iif(each(stataBigger,ibq\atq-stataMoveM(time_avail_m,ibq,12)\stataMoveM(time_avail_m,atq,12),0),1,0)
+    p4 = iif(each(stataBigger,oancfyq-ibq,0),1,0)
+    p5 = iif(each(stataBigger,0,dlttq\atq-stataMoveM(time_avail_m,dlttq,12)\stataMoveM(time_avail_m,atq,12)), 1, 0)
+    p6 = iif(each(stataBigger,actq\lctq-stataMoveM(time_avail_m,actq,12)\stataMoveM(time_avail_m,lctq,12),0),1,0)
+    tempebit = ibq+xintq+txtq
+    p7 = iif(each(stataBigger,tempebit\saleq - tempebit\stataMoveM(time_avail_m,saleq,12),0),1,0)
+    p8 = iif(each(stataBigger,saleq\atq - stataMoveM(time_avail_m,saleq,12)\stataMoveM(time_avail_m,atq,12),0),1,0)
+    p9 = iif(each(stataEbigger,stataMoveM(time_avail_m,shrout,12),shrout),1,0)
+    PS_q = iif(tmpfoptyq.isNull()||ibq.isNull()||atq.isNull()||dlttq.isNull()||saleq.isNull()||actq.isNull()||tempebit.isNull()||shrout.isNull(),NULL, p1+p2+p3+p4+p5+p6+p7+p8+p9)
+    BM = log(ceqq\mve_c)
+    return PS_q,BM
+}
+def pSQ2(PS_q,BM){
+temp = asof(quantileSeries(BM,[0,0.2,0.4,0.6,0.8],interpolation='midpoint'),BM)+1
+PS_q2 = iif(temp<5, NULL, PS_q)
+return PS_q2
+}
+
+
+
+def ps1(time_avail_m, mve_c, sale, at, dltt, act, lct, txt, xint, ib, ceq, shrout, oancf, fopt){
+    //Piotroski F-score
+    fopt0 = fopt.nullFill(oancf)
+    p1 = iif(ib>0, 1, 0)
+    p2 = iif(fopt0>0,1,0)
+    p3 = iif(each(stataBigger,ib\at-stataMoveM(time_avail_m,ib,12)\stataMoveM(time_avail_m,at,12),0),1,0)
+    p4 = iif(each(stataBigger,fopt0,ib),1,0)
+    p5 = iif(each(stataBigger,0,dltt\at-stataMoveM(time_avail_m,dltt,12)\stataMoveM(time_avail_m,at,12)),1,0)
+    p6 = iif(each(stataBigger,act\lct - stataMoveM(time_avail_m,act,12)\stataMoveM(time_avail_m,lct,12),0),1,0)
+    tempebit = ib + txt + xint
+    p7 = iif(each(stataBigger,tempebit\sale - tempebit\stataMoveM(time_avail_m,sale,12),0),1,0)
+    p8 = iif(each(stataBigger,sale\at - stataMoveM(time_avail_m,sale,12)\stataMoveM(time_avail_m,at,12),0),1,0)
+    p9 = iif(each(stataEbigger,stataMoveM(time_avail_m,shrout,12),shrout),1,0)
+    PS = p1+p2+p3+p4+p5+p6+p7+p8+p9
+    PS = iif(isNull(fopt0)||isNull(ib)||isNull(at)||isNull(dltt)||isNull(act)||isNull(sale)||isNull(shrout)||isNull(tempebit),NULL,PS)
+    BM = log(ceq\mve_c)
+    return PS,BM
+}
+def ps2(PS,BM){
+temp=asof(quantileSeries(BM,[0,0.2,0.4,0.6,0.8],interpolation='midpoint'),BM)+1
+PS2 = iif(temp<5, NULL, PS)
+return PS2
+}
+
+
+
+def payoutYield(time_avail_m,dvc, prstkc, pstkrv, mve_c){
+    //Payout Yield
+    PayoutYield = (dvc + prstkc + pstkrv) \ stataMoveM(time_avail_m,mve_c, 6)
+    return iif(PayoutYield <= 0, NULL, PayoutYield)
+}
+
+
+def payoutYieldQ(time_avail_m,mve_c, dvpsxq, cshoq, ajexq, prstkcyq, pstkq){
+    //Payout Yield (quarterly)
+    tempDiv = dvpsxq * cshoq * ajexq
+    tempTotalPayout = tempDiv + prstkcyq + (pstkq - stataMoveM(time_avail_m,pstkq, 3))
+    PayoutYield_q = tempTotalPayout \ stataMoveM(time_avail_m,mve_c, 6)
+    return iif(PayoutYield_q <= 0, NULL, PayoutYield_q)
+}
+
+
+def pctAcc(ib, oancf, act, che, lct, dlc, txp, dp){
+    //Percent Operating PctAcc
+    PctAcc = (ib - oancf) \ abs(ib)
+    PctAcc = iif(ib == 0, (ib - oancf) \ 0.01, PctAcc)
+    PctAcc = iif(isNull(oancf), ((act - move(act, 12)) - (che - move(che, 12)) -((lct - move(lct, 12)) - (dlc - move(dlc, 12)) - (txp - move(txp, 12)) - dp))\ abs(ib), PctAcc)
+    PctAcc = iif(isNull(oancf) && ib == 0, ((act - move(act, 12)) - (che - move(che, 12)) - ((lct - move(lct, 12)) - (dlc - move(dlc, 12)) - (txp - move(txp, 12)) - dp))\ 0.01, PctAcc)
+    return PctAcc
+}
+
+
+
+def pctTotAcc(ni, prstkcc, sstk, dvt, oancf, fincf, ivncf){
+    //Percent Total PctTotAcc
+    return (ni - (prstkcc - sstk + dvt + oancf + fincf + ivncf)) \ abs(ni)
+}
+
+
+
+def price(prc){
+    //Price
+    return log(abs(prc))
+}
+
+
+
+def rd(xrd, mve_c){
+    //R&D-to-market cap
+    return xrd \ mve_c
+}
+
+
+defg rdAbilityRollingRegression(x,y){
+    return ols(y,x)[1]
+}
+def movingRDAbilityRegression(x,y,window,minPeriods) {
+    return moving(rdAbilityRollingRegression, (x,y), window, minPeriods)
+}
+
+def rdAbility1(xrd, sale, fyear){
+tempXRD = iif(xrd<0, NULL, xrd)
+tempSale = iif(sale<0, NULL, sale)
+tempY = log(tempSale\tmove(fyear,tempSale,1))
+tempX = log(1 + tempXRD\tempSale)
+
+tempXLag = tmove(fyear,tempX, 1)
+gammaAbility_1 = movingRDAbilityRegression(tempXLag,tempY,8,6)
+tempNonZero = tempXLag > 0 && isValid(tempXLag)
+tempMean = mavg(tempNonZero,8,6)
+gammaAbility_1 = iif(tempMean < 0.5 && isValid(tempMean), NULL, gammaAbility_1)
+
+
+tempXLag = move(tempX, 2)
+gammaAbility_2 = movingRDAbilityRegression(tempXLag,tempY,8,6)
+tempNonZero = tempXLag > 0 && isValid(tempXLag)
+tempMean = mavg(tempNonZero,8,6)
+gammaAbility_2 = iif(tempMean < 0.5 && isValid(tempMean), NULL, gammaAbility_2)
+
+
+tempXLag = move(tempX, 3)
+gammaAbility_3 = movingRDAbilityRegression(tempXLag,tempY,8,6)
+tempNonZero = tempXLag > 0 && isValid(tempXLag)
+tempMean = mavg(tempNonZero,8,6)
+gammaAbility_3 = iif(tempMean < 0.5 && isValid(tempMean), NULL, gammaAbility_3)
+
+tempXLag = move(tempX, 4)
+gammaAbility_4 = movingRDAbilityRegression(tempXLag,tempY,8,6)
+tempNonZero = tempXLag > 0 && isValid(tempXLag)
+tempMean = mavg(tempNonZero,8,6)
+gammaAbility_4 = iif(tempMean < 0.5 && isValid(tempMean), NULL, gammaAbility_4)
+
+tempXLag = move(tempX, 5)
+gammaAbility_5 = movingRDAbilityRegression(tempXLag,tempY,8,6)
+tempNonZero = tempXLag > 0 && isValid(tempXLag)
+tempMean = mavg(tempNonZero,8,6)
+gammaAbility_5 = iif(tempMean < 0.5 && isValid(tempMean), NULL, gammaAbility_5)
+
+
+RDAbility = rowAvg(gammaAbility_1, gammaAbility_2, gammaAbility_3, gammaAbility_4, gammaAbility_5)
+tempRD = iif(xrd<=0, NULL, xrd \ sale)
+return RDAbility,tempRD
+}
+def rdAbility2(xrd,tempRD,RDAbility){
+tempRDQuant = asof(quantileSeries(tempRD,[0,1\3,2\3,1],interpolation='midpoint'),tempRD)+1
+RDAbility1 = iif(tempRDQuant<3 || xrd<=0, NULL, RDAbility)
+return RDAbility1
+}
+
+
+
+
+def rDS(time_avail_m,recta, ceq, ni, dvp, dvc, prcc_f, csho, msa, pcupsu, paddml){
+    //Real dirty surplus
+    recta1 = recta.nullFill(0)
+    c1= iif(isNull(pcupsu - paddml),0,pcupsu - paddml)
+    c2= iif(isNull(stataMoveM(time_avail_m,pcupsu, 12) - stataMoveM(time_avail_m,paddml, 12)),0,stataMoveM(time_avail_m,pcupsu, 12) - stataMoveM(time_avail_m,paddml, 12))
+    DS = (msa - stataMoveM(time_avail_m,msa, 12)) + (recta1 - stataMoveM(time_avail_m,recta, 12)) + 0.65 * (min(c1, 0)- min(c2, 0))
+    RDS = (ceq - stataMoveM(time_avail_m,ceq, 12)) - DS - (ni - dvp) + dvc - prcc_f * (csho - stataMoveM(time_avail_m,csho, 12))
+    return RDS
+}
+
+
+
+def rDcap(time_avail_m, xrd, mve_c, at){
+    //R&D capital to assets (for constrained only)
+    //xrd = m_aCompustat.xrd
+    //mve_c = SignalMasterTable.mve_c
+    //time_avail_m = SignalMasterTable.time_avail_m
+    year1 = year(time_avail_m)
+    tempXRD = xrd
+    tempXRD = iif(!isValid(tempXRD), 0, tempXRD)
+    RDcap = (tempXRD + 0.8*move(tempXRD,12) + 0.6*move(tempXRD,24) + 0.4*move(tempXRD,36) +
+            0.2*move(tempXRD,48))\at
+    RDcap = iif(year1<1980, NULL, RDcap)
+    temp = table(mve_c, time_avail_m)
+    tempsizeq = exec rank(mve_c, groupNum=5)+1 from temp context by time_avail_m 
+    RDcap = iif(tempsizeq>=2, NULL, RDcap)
+    return RDcap
+}
+
+
+
+
+def revenueSurprise1(time_avail_m,revtq, cshprq, gvkey){
+    //Revenue Surprise
+    revps = revtq\cshprq
+    revps12 = stataMoveM(time_avail_m,revps, 12)
+    GrTemp = (revps - stataMoveM(time_avail_m,revps, 12))
+    temp3 =  stataMoveM(time_avail_m,GrTemp, 3)
+    temp6 =  stataMoveM(time_avail_m,GrTemp, 6) 
+    temp9 =  stataMoveM(time_avail_m,GrTemp, 9) 
+    temp12 =  stataMoveM(time_avail_m,GrTemp, 12) 
+    temp15 =  stataMoveM(time_avail_m,GrTemp, 15) 
+    temp18 =  stataMoveM(time_avail_m,GrTemp, 18) 
+    temp21 =  stataMoveM(time_avail_m,GrTemp, 21) 
+    temp24 =  stataMoveM(time_avail_m,GrTemp, 24) 
+    return GrTemp,temp3, temp6, temp9, temp12, temp15, temp18, temp21, temp24
+}
+
+def revenueSurprise2(time_avail_m,RevenueSurprise){
+temp3 =  stataMoveM(time_avail_m,RevenueSurprise, 3) 
+temp6 =  stataMoveM(time_avail_m,RevenueSurprise, 6) 
+temp9 =  stataMoveM(time_avail_m,RevenueSurprise, 9) 
+temp12 =  stataMoveM(time_avail_m,RevenueSurprise, 12) 
+temp15 =  stataMoveM(time_avail_m,RevenueSurprise, 15) 
+temp18 =  stataMoveM(time_avail_m,RevenueSurprise, 18) 
+temp21 =  stataMoveM(time_avail_m,RevenueSurprise, 21) 
+temp24 =  stataMoveM(time_avail_m,RevenueSurprise, 24) 
+return temp3, temp6, temp9, temp12, temp15, temp18, temp21, temp24
+
+}
+
+
+
+def roe(ni, ceq){
+    //Return on Equity
+    return ni \ ceq
+}
+
+
+def sp(sale, mve_c){
+    //Sales-to-price ratio
+    return sale \ mve_c
+}
+
+
+
+def sTreversal(ret){
+    //Short-term reversal
+    return ret.nullFill(0)
+}
+
+
+
+def shareIss1Y(time_avail_m,shrout, cfacshr){
+    //Share Issuance (1 year)
+    temp = shrout * cfacshr
+    return (stataMoveM(time_avail_m,temp, 6) - stataMoveM(time_avail_m,temp, 18)) \ stataMoveM(time_avail_m,temp, 18)
+}
+
+
+
+def shareIss5Y(time_avail_m,shrout, cfacshr){
+    //Share Issuance (5 year)
+    temp = shrout * cfacshr
+    return (stataMoveM(time_avail_m,temp, 5) - stataMoveM(time_avail_m,temp, 65)) \ stataMoveM(time_avail_m,temp, 65)
+}
+
+
+
+def shareRepurchase(prstkc){
+    //Share Repurchase
+    ShareRepurchase = (prstkc > 0 && isValid(prstkc))
+    return iif(isValid(prstkc), ShareRepurchase, NULL)
+}
+
+
+
+def shareVol(vol, shrout){
+    //Share Volume
+    tempShareVol = (vol + move(vol,1) + move(vol,2))\(3*shrout) * 100
+    dshrout = shrout!=move(shrout, 1)
+    dshrout[0]=0
+    dropObs = iif((dshrout + move(dshrout, 1) + move(dshrout, 2)) > 0, 1, 0)
+    dropObs[0]=0
+    // drop if dropObs == 1
+
+    ShareVol = iif(dropObs == 1, NULL, iif(tempShareVol==NULL,1,iif(tempShareVol>10, 1, iif(tempShareVol<5, 0, NULL))))
+    return (ShareVol,tempShareVol)
+}
+
+
+
+def Size(mve_c){
+    //Size
+    return log(mve_c)
+}
+
+
+
+
+def surpriseRD(time_avail_m, xrd, revt, at){
+    //Unexpected R&D increase
+    SurpriseRD = iif(each(stataBigger,xrd \ revt,0) && each(stataBigger,xrd \ at , 0) && each(stataBigger,xrd \ stataMoveM(time_avail_m,xrd, 12) ,1.05) &&
+    each(stataBigger,(xrd \ at) \ (stataMoveM(time_avail_m,xrd, 12) \ stataMoveM(time_avail_m,at, 12)) , 1.05) && isValid(xrd) &&
+    isValid(stataMoveM(time_avail_m,xrd, 12)), 1, NULL)
+    return iif(!isValid(SurpriseRD) && (isValid(xrd) && isValid(stataMoveM(time_avail_m,xrd, 12))), 0, SurpriseRD)
+}
+
+
+
+def tax(time_avail_m, txfo, txfed, txt, txdi, ib){
+    //Taxable income to income
+    year1 = year(time_avail_m)
+    tr = iif(year1 >= 1979 && year1 <= 1986, 0.46, iif(year1 == 1987,0.4, iif(year1 >= 1988 && year1 <= 1992,0.34, iif(year1 >= 1993,0.35, 0.48))))
+    Tax = ((txfo + txfed) \ tr) \ ib
+    Tax = iif(isNull(txfo) || isNull(txfed), ((txt - txdi) \ tr) \ ib, Tax)
+    Tax =  iif((each (stataBigger, txfo + txfed , 0) || (each (stataBigger,txt-txdi,0) && each (stataBigger,0,txdi-txt))) && each(stataEbigger,0,ib), 1, Tax)
+    return Tax
+
+}
+
+
+def totalAccruals(ivao, ivst, dlc, pstk, dv, act, che, lct, at, dltt, lt, sstk, ni, oancf, ivncf, fincf, prstkc, time_avail_m){
+    //Total Accruals
+    // the columns should not include any missing value
+    ivao.nullFill(0)
+    ivst.nullFill(0)
+    dltt.nullFill(0)
+    dlc.nullFill(0)
+    pstk.nullFill(0)
+    sstk.nullFill(0)
+    prstkc.nullFill(0)
+    dv.nullFill(0)
+
+    tempWC = (act - che) - (lct - dlc)
+    tempNc = (at - act - ivao) - (lt - dlc - dltt)
+    tempFi = (ivst + ivao) - (dltt + dlc + pstk)
+    year1 = year(time_avail_m)
+    TotalAccruals = iif(year1<=1889, (tempWC - move(tempWC, 12)) - (tempNc - move(tempNc, 12)) - (tempFi - move(tempFi, 12)), ni - (oancf + ivncf + fincf) + (sstk - prstkc - dv))
+    TotalAccruals = TotalAccruals \ move(at, 12)
+    return TotalAccruals
+}
+
+
+
+
+def varCF(ib, dp, mve_c, time_avail_m, permno){
+    //Cash-flow variance
+    tempCF = (ib + dp) \ mve_c
+    temp = table(tempCF, time_avail_m, permno)
+    sigma = exec mstd(tempCF, window = 60, minPeriods = 24) from temp context by permno
+    return pow(sigma, 2)
+}
+
+
+
+def volMkt(shrout, prc, vol, mve_c, permno){
+    //Volume to market equity
+    mve_cTmp = (shrout * abs(prc))
+    temp = vol * abs(prc)
+    temp = table(temp, permno)
+    tempMean = exec mavg(temp, window = 12, minPeriods = 10) from temp context by permno
+    VolMkt = tempMean \ mve_cTmp
+    return VolMkt
+}
+
+
+
+def volSD(vol){
+    //Volume variance
+    VolSD = mstd(vol, window = 36, minPeriods = 24)
+    return VolSD
+}
+
+
+
+def volumeTrend(time_avail_m, vol){
+    betaVolTrend = mbeta(vol, int(time_avail_m), 60,30)
+    meanX = mavg(vol,60,30) 
+    VolumeTrend = betaVolTrend \ meanX
+    return VolumeTrend
+}
+
+
+def xFin(sstk, dv, prstkc, dltis, dltr, dlcch,at){
+    //Net External Financing
+    return (sstk - dv - prstkc + dltis - dltr+ dlcch) \ at
+}
+
+
+
+def zz1frfr(time_avail_m, mve_c, at, pbnaa, pplao, pplau, pbnvv, pbpro, pbpru, shrcd, year){
+    //Pension Funding Status
+    //Pension Funding Status (scaled by book assets)
+    FVPA = iif(year >= 1980 && year <= 1986, pbnaa,
+            iif(year >= 1987 && year <= 1997, pplao + pplau,
+            iif(year >= 1998, pplao, NULL)))
+    PBO = iif(year >= 1980 && year <= 1986, pbnvv,
+            iif(year >= 1987 && year <= 1997, pbpro + pbpru,
+            iif(year >= 1998, pbpro, NULL)))
+    FR = iif(shrcd > 11, NULL, (FVPA - PBO) \ mve_c)
+    //FRbook = iif(shrcd > 11, NULL, (FVPA - PBO) \ at)
+    return FR
+}
+
+
+
+def zz1frfrBook(time_avail_m, mve_c, at, pbnaa, pplao, pplau, pbnvv, pbpro, pbpru, shrcd, year){
+    //Pension Funding Status
+    //Pension Funding Status (scaled by book assets)
+    FVPA = iif(year >= 1980 && year <= 1986, pbnaa,
+            iif(year >= 1987 && year <= 1997, pplao + pplau,
+            iif(year >= 1998, pplao, NULL)))
+    PBO = iif(year >= 1980 && year <= 1986, pbnvv,
+            iif(year >= 1987 && year <= 1997, pbpro + pbpru,
+            iif(year >= 1998, pbpro, NULL)))
+    //FR = iif(shrcd > 11, NULL, (FVPA - PBO) \ mve_c)
+    FRbook = iif(shrcd > 11, NULL, (FVPA - PBO) \ at)
+    return FRbook
+}
+
+//quantile是1，99，lag是60
+def DatagenInstan1(time_avail_m,ceq, mve_c, sale, ib, dp, ni, ret){
+    tempAccBM = log(ceq\mve_c)
+    tempAccSP = sale \ mve_c
+    tempAccCFP = (ib + dp) \ mve_c
+    tempAccEP = ni \ mve_c
+    ret0 = nullFill(ret,0)
+    tempCumRet = exp(cumsum(log(1+ret0)))
+    l60 = stataMoveM(time_avail_m,tempCumRet,6)
+    tempRet60 = (tempCumRet - l60) \ l60
+    return tempAccBM, tempAccSP, tempAccCFP, tempAccEP, tempRet60
+}
+def DatagenInstan2(time_avail_m,tempAccBM, tempAccSP, tempAccCFP, tempAccEP, tempRet60){
+    tempRet601 =iif(isNull(tempRet60),NULL,iif(tempRet60>quantile(tempRet60, 0.55,'lower'),quantile(tempRet60, 0.55, 'lower'),iif(tempRet60<quantile(tempRet60, 0.5,'linear'),quantile(tempRet60, 0.5,'linear'),tempRet60)))
+    return  tempRet601, tempAccBM, tempAccSP, tempAccCFP, tempAccEP
+}
+def DatagenInstan3(time_avail_m,tempAccBM, tempAccSP, tempAccCFP, tempAccEP, tempRet60){
+  //tempRet601 = winsorize(tempRet60, 0.3,inclusive=false,nanPolicy='omit')
+    tempAccBMRet=tempAccBM-stataMoveM(time_avail_m,tempAccBM,6) + tempRet60
+    tempAccSPRet=tempAccSP-stataMoveM(time_avail_m,tempAccSP,6) + tempRet60
+    tempAccCFPRet=tempAccCFP-stataMoveM(time_avail_m,tempAccCFP,6) + tempRet60
+    tempAccEPRet=tempAccEP-stataMoveM(time_avail_m,tempAccEP,6) + tempRet60
+    shiftBM=stataMoveM(time_avail_m,tempAccBM,6)
+    shiftSP=stataMoveM(time_avail_m,tempAccSP,6)
+    shiftCFP=stataMoveM(time_avail_m,tempAccCFP,6)
+    shiftEP=stataMoveM(time_avail_m,tempAccEP,6)
+    return  tempRet60,tempAccBMRet,tempAccSPRet,tempAccCFPRet,tempAccEPRet,shiftBM,shiftSP,shiftCFP,shiftEP
+}
+
+def zz1IntanBM(tempRet60,tempAccBMRet,tempAccSPRet,tempAccCFPRet,tempAccEPRet,shiftBM,shiftSP,shiftCFP,shiftEP){
+    return ols(tempRet60, (shiftBM, tempAccBMRet),,2).Residual      
+}
+
+def zz1IntanSP(tempRet60,tempAccBMRet,tempAccSPRet,tempAccCFPRet,tempAccEPRet,shiftBM,shiftSP,shiftCFP,shiftEP){
+    return ols(tempRet60, (shiftSP, tempAccSPRet),,2).Residual
+}
+
+
+def zz1IntanCFP(tempRet60,tempAccBMRet,tempAccSPRet,tempAccCFPRet,tempAccEPRet,shiftBM,shiftSP,shiftCFP,shiftEP){
+    return ols(tempRet60, (shiftCFP, tempAccCFPRet),,2).Residual
+}
+
+def zz1IntanEP(tempRet60,tempAccBMRet,tempAccSPRet,tempAccCFPRet,tempAccEPRet,shiftBM,shiftSP,shiftCFP,shiftEP){
+    return ols(tempRet60, (shiftEP, tempAccEPRet),,2).Residual
+}
+
+defg residualMomentumRegression(x1,x2,x3,y) {
+    vector = ols(y, (x1,x2,x3),,2).Residual
+    return vector[size(vector)-1]
+}
+def movingResidualMomentum(x1,x2,x3,y,window,minPeriods) {
+    return moving(residualMomentumRegression,(x1,x2,x3,y),window,minPeriods)
+}
+
+def zz1ResidualMomentum6mResidualMomentum(permno, time_avail_m, ret, rf, mktrf, hml, smb){
+    //6 month residual momentum
+    //Momentum based on FF3 residuals
+    retrf = ret - rf
+    time_temp = contextby(cumcount, time_avail_m, permno)
+    residuals = movingResidualMomentum(mktrf, hml, smb, retrf,36,36)
+    temp = move(residuals,1)
+    mean6_temp = mavg(temp,6,6)
+    sd6_temp = mstd(temp,6,6)
+    ResidualMomentum6m = mean6_temp \ sd6_temp
+    
+    mean11_temp = mavg(temp,11,11)
+    sd11_temp = mstd(temp,11,11)
+    ResidualMomentum = mean11_temp \ sd11_temp
+    return ResidualMomentum6m
+}
+
+
+
+def zz1ResidualMomentum11mResidualMomentum(permno, time_avail_m, ret, rf, mktrf, hml, smb){
+    //6 month residual momentum
+    //Momentum based on FF3 residuals
+    retrf = ret - rf
+    time_temp = contextby(cumcount, time_avail_m, permno)
+    residuals = movingResidualMomentum(mktrf, hml, smb, retrf,36,36)
+    temp = move(residuals,1)
+    mean6_temp = mavg(temp,6,6)
+    sd6_temp = mstd(temp,6,6)
+    ResidualMomentum6m = mean6_temp \ sd6_temp
+    
+    mean11_temp = mavg(temp,11,11)
+    sd11_temp = mstd(temp,11,11)
+    ResidualMomentum = mean11_temp \ sd11_temp
+    return ResidualMomentum
+}
+
+
+
+def zz2AbnormalAccruals1(permno,sic, fyear, act, at, che, dlc, fopt, ib, lct, ni, ppegt, sale, oancf, exchcd){
+    year0=month(temporalParse('01-01-'+string(fyear), "dd-MM-yyyy"))
+    tempCFO = oancf
+    tempCFO = iif(!isValid(tempCFO), fopt - (act - stataMoveM(year0,act,12)) + (che - stataMoveM(year0,che,12)) + (lct - stataMoveM(year0,lct,12)) - (dlc - stataMoveM(year0,dlc,12)), tempCFO)
+    tempAccruals = (ib-tempCFO)\stataMoveM(year0,at,12)
+    tempInvTA = 12\stataMoveM(year0,at,12)
+    tempDelRev = (sale-stataMoveM(year0,sale,12))\stataMoveM(year0,at,12)
+    tempPPE = ppegt\stataMoveM(year0,at,12)
+    sic1=floor(sic\100)
+    return permno,fyear,tempCFO,tempAccruals,tempInvTA,tempDelRev,tempPPE,sic1,at,ni
+}
+def zz2AbnormalAccruals2(tempCFO,tempAccruals,tempInvTA,tempDelRev,tempPPE){
+    tempAccruals1 = stataWinsortrim(tempAccruals,0.001)
+    tempInvTA1 = stataWinsortrim(tempInvTA,0.001)
+    tempDelRev1 = stataWinsortrim(tempDelRev,0.001)
+    tempPPE1 = stataWinsortrim(tempPPE,0.001)
+    return tempCFO,tempAccruals1,tempInvTA1,tempDelRev1,tempPPE1
+}
+def zz2AbnormalAccruals3(tempCFO,tempAccruals,tempInvTA,tempDelRev,tempPPE){
+    AbnormalAccruals = ols(tempAccruals, (tempInvTA,tempDelRev,tempPPE),,2).Residual
+    return AbnormalAccruals
+}
+
+def zz2AbnormalAccrualsPercent(fyear,AbnormalAccruals,at,ni){
+        year0=month(temporalParse('01-01-'+string(fyear), "dd-MM-yyyy"))
+        AbnormalAccrualsPercent = AbnormalAccruals*stataMoveM(year0,at,12)\abs(ni)
+        return AbnormalAccrualsPercent
+}
+
+
+
+
+def cfp(act, che, lct, dlc, txp, dp, ib, oancf, mve_c){
+    accrual_level = (act - move(act, 12) - (che - move(che, 12))) - ((lct - move(lct, 12)) -
+                    (dlc - move(dlc, 12)) - (txp - move(txp, 12)) - dp)
+    cfp = (ib - accrual_level) \ mve_c
+    result = iif(isNull(oancf), cfp, oancf \ mve_c)
+    return result
+}
+
+
+def dNoa(at,che,dltt,dlc,mib,pstk,ceq){
+    //Change in Net Operating Assets
+    tempOA = at - che
+    tmp = table(dltt, dlc, mib, pstk)
+    for(v in `dltt`dlc`mib`pstk){
+        tmp[v] = iif(tmp[v].isValid(), tmp[v], 0)
+    }
+    tempOL = at-tmp.dltt-tmp.dlc-tmp.mib-tmp.pstk-ceq
+    tempNOA = tempOA-tempOL
+    dNoa = (tempNOA - move(tempNOA, 12))\move(at,12)
+    return dNoa
+}
+
+
+
+
+def hire(emp, time_avail_m){
+    //Employee growth
+    hire = (emp - stataMoveM(time_avail_m,emp, 12)) \ (0.5 * (emp + stataMoveM(time_avail_m,emp, 12)))
+    return iif(isNull(emp) || isNull(stataMoveM(time_avail_m,emp, 12)), 0,iif(year(time_avail_m) < 1965, NULL, hire))
+}
+
+
+
+
+def roaq(time_avail_m,ibq, atq){
+    //Return on Assets
+    return ibq \ stataMoveM(time_avail_m,atq, 3)
+}
+
+
+
+def stdTurn1(vol, shrout, prc){
+    //Turnover volatility
+    tempturn = vol \ shrout
+    std_turn1 = mstd(tempturn, 36, 24)
+    mve_c = (shrout * abs(prc))
+    return std_turn1, mve_c
+}
+
+def stdTurn2(std_turn1,mve_c){
+    //Turnover volatility
+    tempqsize = asof(quantileSeries(mve_c,[0,0.2,0.4,0.6,0.8],interpolation='midpoint'),mve_c)+1 
+    std_turn = iif(tempqsize>=4, NULL, std_turn1)
+    return std_turn
+}
+
+
+
+def tang( time_avail_m, che, rect, invt, ppegt, at){
+    //Tangibility
+    tmptable = table(time_avail_m, che, rect, invt, ppegt, at)
+    tempFC = exec rank(at, groupNum=10)+1 from tmptable context by time_avail_m 
+    FC = iif(tempFC <= 3, 1, iif(tempFC >= 8 && isValid(tempFC), 0, NULL))
+    tang = (tmptable.che + 0.715 * tmptable.rect + 0.547 * tmptable.invt + 0.535 * tmptable.ppegt) \ tmptable.at
+    return tang
+}
+
+
+
+//Placebos
+
+
+def aMq(atq, mve_c){
+    //Total assets to market (quarterly)
+    return atq \ mve_c
+}
+
+
+
+def assetGrowthQ(time_avail_m,atq){
+    //Asset Growth (quarterly)
+    return (atq - stataMoveM(time_avail_m,atq, 12)) \ stataMoveM(time_avail_m,atq, 12)
+}
+
+
+
+def assetLiquidityBook(che, act, at, gdwl, intan){
+    //Asset liquidity (scaled by book value of assets)
+    return (che + 0.75 * (act - che) + 0.5 * (at - act - gdwl - intan)) \ move(at, 1)
+}
+
+
+
+def assetLiquidityBookQuart(time_avail_m,gdwlq, intanq, cheq, actq, atq){
+    //Quarterly Asset liquidity (scaled by book value of assets)
+    return (cheq + 0.75 * (actq - cheq) + 0.5 * (atq - actq - gdwlq - intanq)) \ stataMoveM(time_avail_m,atq, 1)
+}
+
+
+
+def assetLiquidityMarket(time_avail_m,che, act, at, gdwl, intan, prcc_f, csho, ceq){
+    //Asset liquidity (scaled by market value of assets)
+    return (che + 0.75 * (act - che) + 0.5 * (at - act - gdwl - intan)) \
+            (stataMoveM(time_avail_m,at, 1) + stataMoveM(time_avail_m,prcc_f, 1) * stataMoveM(time_avail_m,csho, 1) - stataMoveM(time_avail_m,ceq, 1))
+}
+
+
+def assetLiquidityMarketQuart(time_avail_m,gdwlq, intanq, cheq, actq, atq, prccq, cshoq, ceqq){
+    //Asset liquidity (scaled by market value of assets)
+    return (cheq + 0.75 * (actq - cheq) + 0.5 * (atq - actq - gdwlq - intanq)) \
+            (stataMoveM(time_avail_m,atq, 1) + stataMoveM(time_avail_m,prccq, 1) * stataMoveM(time_avail_m,cshoq, 1) - stataMoveM(time_avail_m,ceqq, 1))
+}
+
+
+
+def assetTurnover(time_avail_m,rect, invt, aco, ppent, intan, ap, lco, lo, sale){
+    //Asset Turnover
+    temp = (rect + invt + aco + ppent + intan - ap - lco - lo)
+    AssetTurnover =  sale \ ((temp + stataMoveM(time_avail_m,temp, 12)) \ 2)
+    return iif(AssetTurnover < 0, NULL, AssetTurnover)
+}
+
+
+
+def assetTurnoverQ(time_avail_m,rectq, invtq, acoq, ppentq, intanq, apq, lcoq, loq, saleq){
+    //Asset Turnover (quarterly)
+    temp = (rectq + invtq + acoq + ppentq + intanq - apq - lcoq - loq)
+    AssetTurnover_q =  saleq \ ((temp + stataMoveM(time_avail_m,temp, 12)) \ 2)
+    return iif(AssetTurnover_q < 0, NULL, AssetTurnover_q)
+}
+
+
+
+def bMq(ceqq, mve_c){
+    //Book-to-market quarterly
+    return log(ceqq \ mve_c)
+}
+
+
+
+
+def betaSquared(ret, rf, ewretd){
+    //Beta squared
+    retrf = ret - rf
+    ewmktrf = ewretd- rf
+    return pow(mbeta(retrf, ewmktrf,60,20), 2)
+}
+
+
+
+def bookLeverageQuarterly(txditcq, seqq, ceqq, pstkq, atq, ltq){
+    //Book leverage (quarterly)
+    tempSE = seqq
+    tempSE = iif(isValid(tempSE), tempSE, ceqq + pstkq)
+    tempSE = iif(isValid(tempSE), tempSE, atq - ltq)
+    return atq \ (tempSE + txditcq - pstkq)
+}
+
+
+
+def addbrandCapital(x,y){
+    return 0.5*x+y
+}
+def brandCapital(fyear,datadate,xad,at,gvkey){
+    //Brand Capital
+    OK = xad.isValid()
+    BrandCapital = iif(OK==1 && rowNo(gvkey)==0,xad/(0.5+0.1),0)
+    tempYear = iif(OK==1 && rowNo(gvkey)==0,fyear,NULL)
+    FirstNMyear = min(tempYear)
+    tempxad = nullFill(xad,0)
+    BrandCapital2 =BrandCapital
+    BrandCapital2[1:] =accumulate(addbrandCapital,tempxad[1:],BrandCapital[0])
+    BrandCapital3 = iif(!isValid(FirstNMyear)||fyear<FirstNMyear||!isValid(xad),NULL,(BrandCapital2))
+    BrandCapital4=BrandCapital3/at
+    return BrandCapital4
+}
+
+
+def brandInvest(fyear,datadate,xad,xad0,at,gvkey){
+    //Brand investment rate
+    OK = xad.isValid()
+    BrandCapital = iif(OK==1 && rowNo(gvkey)==0,xad/(0.5+0.1),0)
+    tempYear = iif(OK==1 && rowNo(gvkey)==0,fyear,NULL)
+    FirstNMyear = min(tempYear)
+    tempxad = nullFill(xad,0)
+    BrandCapital2 =BrandCapital
+    BrandCapital2[1:] =accumulate(addbrandCapital,tempxad[1:],BrandCapital[0])
+    BrandCapital3 = iif(!isValid(FirstNMyear)||fyear<FirstNMyear||!isValid(xad),NULL,(BrandCapital2))
+    BrandCapital4=BrandCapital3\at
+    BrandInvest=xad0\(iif(move(fyear,1)==fyear-1,move(BrandCapital4, 1),null))
+    return BrandCapital4,BrandInvest
+}
+
+
+
+def cbOperProfLagATQ(atq, revtq, cogsq, xsgaq, xrdq, rectq, invtq, drcq, drltq, apq, xaccq, ceq, mve_c, shrcd){
+    //Cash-based Operating Profitability 
+    CBOperProfLagAT_q = (revtq - cogsq - (xsgaq - xrdq)) - (rectq - move(rectq, 3)) -
+                 (invtq - move(invtq, 3)) + (drcq + drltq - move(drcq, 3) - move(drltq, 3)) +
+                 (apq - move(apq, 3)) + (xaccq - move(xaccq, 3))
+    CBOperProfLagAT_q = CBOperProfLagAT_q \ move(atq, 3)
+    
+    BM = log(ceq \ mve_c)
+    return iif(shrcd > 11 || !isValid(mve_c) || !isValid(BM) || !isValid(atq), NULL, CBOperProfLagAT_q)
+}
+
+
+def cFq(ibq, dpq, mve_c){
+    //Cash-flow to market (quarterly)
+    return (ibq + dpq) \ mve_c
+}
+
+
+
+def capTurnover(time_avail_m,sale, at){
+    //Capital turnover
+    return stataMoveM(time_avail_m,sale, 12) \ stataMoveM(time_avail_m,at, 24)
+}
+
+
+
+def capTurnoverQ(time_avail_m,saleq, atq){
+    //Capital turnover (quarterly)
+    return saleq \ stataMoveM(time_avail_m,atq, 3)
+}
+
+
+
+def chNCOA(at, act, ivao){
+    //Change in Noncurrent Operating Assets
+    temp = at - act - ivao
+    temp = iif(isValid(ivao), temp, at - act)
+    return (temp - move(temp, 12)) \ move(at, 12)
+}
+
+
+
+def chNCOL(lt, dlc, dltt, at){
+    //Change in Noncurrent Operating Liabilities
+    temp = lt - dlc - dltt
+    temp = iif(isValid(dltt), temp, lt - dlc)
+    return (temp - move(temp, 12)) \ move(at, 12)
+}
+
+
+
+def changeRoA(time_avail_m,atq, ibq){
+    //Change in return on assets
+    tempRoa = ibq \ atq
+    return tempRoa - stataMoveM(time_avail_m,tempRoa, 12)
+}
+
+
+
+def changeRoE(time_avail_m,ibq, ceqq){
+    //Change in return on equity
+    tempRoe = ibq \ ceqq
+    return tempRoe - stataMoveM(time_avail_m,tempRoe, 12)
+}
+
+
+
+def delSTI(at, ivst){
+    //Change in short-term investment
+    tempAvAT = 0.5 * (at + move(at, 12))
+    DelSTI = ivst - move(ivst, 12)
+    return DelSTI \ tempAvAT
+}
+
+
+def divYield1(divamt, prc, time_avail_m, mve_c){
+    //Dividend Yield (Current)
+    temp = iif(isValid(divamt), divamt, 0)
+    tempdy = 4 * max(temp, max(stataMoveM(time_avail_m,temp, 1), stataMoveM(time_avail_m,temp, 2))) \ abs(prc)
+    tempdypos = tempdy
+    tempdypos = iif(each(stataEbigger,0,temp) && each(stataEbigger,0,stataMoveM(time_avail_m,temp, 1) ) && each(stataEbigger,0,stataMoveM(time_avail_m,temp, 2) ) ||
+                (each(stataEbigger,0,stataMoveM(time_avail_m,temp, 3) ) && each(stataEbigger,0,stataMoveM(time_avail_m,temp, 4) ) && each(stataEbigger,0,stataMoveM(time_avail_m,temp, 5) )) ||
+                (each(stataEbigger,0,stataMoveM(time_avail_m,temp, 6) ) && each(stataEbigger,0,stataMoveM(time_avail_m,temp, 7) ) && each(stataEbigger,0,stataMoveM(time_avail_m,temp, 8) )) ||
+                (each(stataEbigger,0,stataMoveM(time_avail_m,temp, 9) ) && each(stataEbigger,0,stataMoveM(time_avail_m,temp, 10)) && each(stataEbigger,0,stataMoveM(time_avail_m,temp, 11) )),
+                NULL, tempdypos)
+    DivYield = tempdypos
+    return temp,tempdypos,DivYield
+}
+
+def divYield2(DivYield, mve_c){
+    tempsize = asof(quantileSeries(mve_c,[0,0.25,0.5,0.75],interpolation='midpoint'),mve_c)+1
+    return iif(tempsize >= 3, NULL, DivYield)
+}
+
+
+
+def divYieldAnn(prc, divamt){
+    //Dividend Yield (Past Year)
+    tmpdivamt = divamt.nullFill(0)
+    divann = tmpdivamt.msum(12,6)
+    DivYieldAnn = divann\abs(prc)
+    return DivYieldAnn
+}
+
+// data1 = select gvkey,permno,time_avail_m,che,dltt,dlc,dc,dvpa,tstkp,ceq from m_aCompustat context by permno, time_avail_m having rowNo(time_avail_m)==0
+// merged_data = select data1.*, mve_c from data1 inner join SignalMasterTable on data1.permno = SignalMasterTable.permno and data1.time_avail_m = SignalMasterTable.time_avail_m 
+// result = select permno, time_avail_m,eBM1(mve_c, cheq, dlttq, dlcq, pstkq, ceqq) as EBM_q from merged_data
+
+
+// def eBM1(mve_c, cheq, dlttq, dlcq, pstkq, ceqq){
+//         //Enterprise component of BM (quarterly)
+//         temp = che - dlttq - dlcq - pstkq
+//         return (ceqq + temp) \ (mve_c + temp)
+//     }
+
+def eBMQ(mve_c, cheq, dlttq, dlcq, pstkq, ceqq){
+    //Enterprise component of BM (quarterly)
+    temp = cheq - dlttq - dlcq - pstkq
+    return (ceqq + temp) \ (mve_c + temp)
+}
+
+
+
+def ePq(time_avail_m,ibq,mve_c){
+    //Earnings-to-price ratio (quarterly)
+    EPq = ibq \ stataMoveM(time_avail_m,mve_c, 6)
+    return iif(EPq < 0, NULL, EPq)
+}
+
+
+
+def eTr(time_avail_m,am, txt, pi0, epspx, ajex, prcc_f){
+    //Effective Tax Rate
+    am0 = nullFill(am,0)
+    tempTaxOverEBT = txt \ (pi0 + am0)
+    tempEarn = epspx \ ajex
+    ETR= (tempTaxOverEBT - 1\3 * (stataMoveM(time_avail_m,tempTaxOverEBT, 12) + stataMoveM(time_avail_m,tempTaxOverEBT, 24) +
+    stataMoveM(time_avail_m,tempTaxOverEBT, 36))) * ((tempEarn - stataMoveM(time_avail_m,tempEarn, 12)) \ stataMoveM(time_avail_m,prcc_f, 1))
+    return ETR
+}
+
+
+def earningsSmoothness(ib, at, act, lct, che, dlc, dp, gvkey){
+    tempEarnings = ib \ move(at, 1)
+    tempCF = (ib - ((act - move(act, 1)) - (lct - move(lct, 1)) - (che - move(che, 1)) +
+            (dlc - move(dlc, 1)) - dp)) \ move(at, 1)
+    tmp = table(tempEarnings, tempCF, gvkey)
+    sd10_tempEarnings = exec mstd(tempEarnings, 10, 10) from tmp context by gvkey
+    sd10_tempCF = exec mstd(tempCF, 10, 10) from tmp context by gvkey
+    EarningsSmoothness = sd10_tempEarnings \ sd10_tempCF
+    return EarningsSmoothness
+}
+
+
+
+def entMultQ(mve_c, dlttq, dlcq, pstkq, cheq, oibdpq, ceqq){
+    //Enterprise Multiple (quarterly)
+    EntMult_q = (mve_c + dlttq + dlcq + pstkq - cheq) \ oibdpq
+    return iif(ceqq < 0 || oibdpq < 0, NULL, EntMult_q)
+}
+
+
+
+
+def gPlag(time_avail_m,sale, cogs, at){
+    //Gross profitability (lagged assets)
+    return (sale - cogs) \ stataMoveM(time_avail_m,at, 12)
+}
+
+
+
+def gPlagQ(time_avail_m,revtq, cogsq, atq){
+    //Gross profitability (quarterly)
+    return (revtq - cogsq) \ stataMoveM(time_avail_m,atq, 3)
+}
+
+
+
+def grGMToGrSales(time_avail_m,sale, cogs){
+    //Gross Margin growth over sales growth
+    tempGM = sale - cogs
+    GrGMToGrSales = ((tempGM - (0.5 * (stataMoveM(time_avail_m,tempGM, 12) + stataMoveM(time_avail_m,tempGM, 24)))) \
+                    (0.5 * (stataMoveM(time_avail_m,tempGM, 12) + stataMoveM(time_avail_m,tempGM, 24)))) - ((sale -
+                    (0.5 * (stataMoveM(time_avail_m,sale, 12) + stataMoveM(time_avail_m,sale, 24)))) \ (0.5 * (stataMoveM(time_avail_m,sale, 12) +
+                    stataMoveM(time_avail_m,sale, 24))))
+    return iif(isValid(GrGMToGrSales), GrGMToGrSales, ((tempGM - stataMoveM(time_avail_m,tempGM, 12)) \
+            stataMoveM(time_avail_m,tempGM, 12)) - ((sale - stataMoveM(time_avail_m,sale, 12)) \ stataMoveM(time_avail_m,sale, 12)))                
+}
+
+
+
+def grSaleToGrReceivables(time_avail_m,sale, rect){
+    //Sales growth over receivables growth
+    GrSaleToGrReceivables = ((sale - (0.5 * (stataMoveM(time_avail_m,sale, 12) + stataMoveM(time_avail_m,sale, 24)))) \
+                            (0.5 * (stataMoveM(time_avail_m,sale, 12) + stataMoveM(time_avail_m,sale, 24)))) - ((rect -
+                            (0.5 * (stataMoveM(time_avail_m,rect, 12) + stataMoveM(time_avail_m,rect, 24)))) \ (0.5 *
+                            (stataMoveM(time_avail_m,rect, 12) + stataMoveM(time_avail_m,rect, 24))))
+    return iif(isValid(GrSaleToGrReceivables), GrSaleToGrReceivables,
+            ((sale - stataMoveM(time_avail_m,sale, 12)) \ stataMoveM(time_avail_m,sale, 12)) - 
+            ((rect - stataMoveM(time_avail_m,rect, 12)) \ stataMoveM(time_avail_m,rect, 12)))
+}
+
+
+
+def kz(mve_c, ib, dp, at, ceq, txdb, dlc, dltt, seq, dvc, dvp, che, ppent){
+    //Kaplan-Zingales index
+    return -1.002 * (ib + dp) \ ppent + 0.283 * (at + mve_c - ceq - txdb) \ at +
+            3.319 * (dlc + dltt) \ (dlc + dltt + seq) - 39.368 * ((dvc + dvp) \ ppent) -
+            1.315 * (che \ ppent)
+}
+
+
+def kZQ(mve_c, txdiq, ibq, dpq, atq, ceqq, dlcq, dlttq, cheq, dvy,ppentq){
+    //Kaplan-Zingales index (quarterly)
+    tempTX = iif(isValid(txdiq), txdiq, 0)
+    return -1.002 * (ibq + dpq) \ ppentq + 0.283 * (atq + mve_c - ceqq - tempTX) \ atq +
+            3.319 * (dlcq + dlttq) \ (dlcq + dlttq + ceqq) - 39.368 * (dvy \ ppentq) -
+            1.315 * (cheq \ ppentq)
+}
+
+
+
+def laborforceEfficiency(sale, emp){
+    //Laborforce Efficiency
+    temp = sale \ emp
+    return (temp - move(temp, 12)) \ move(temp, 12)
+}
+
+
+
+def leverageQ(ltq, mve_c){
+    //Market leverage (quarterly)
+    return ltq \ mve_c
+}
+
+
+
+def netDebtPriceQ(sic, dlttq, dlcq, pstkq, cheq, mve_c, atq, ibq, csho, ceqq, prcc_f,ceq,time_avail_m,permno){
+    //Net debt to price ratio (quarterly)
+    tmp = table(sic, dlttq, dlcq, pstkq, cheq, mve_c, atq, ibq, csho, ceqq, prcc_f,ceq,time_avail_m,permno)
+
+    tmp= select *, NetDebtPrice_q = ((dlttq + dlcq + pstkq) - cheq) \ mve_c from tmp
+    tmp= select *, NetDebtPrice_q1 = iif(!isValid(atq) || !isValid(ibq) || !isValid(csho) || !isValid(ceqq) ||!isValid(prcc_f) || (sic>=6000 && sic<=6999),  NULL, NetDebtPrice_q),
+    BM = log(ceq \ mve_c) from tmp
+    
+    tmp= select *, tempsort = iif(asof(quantileSeries(BM,[0,0.2,0.4,0.6,0.8],interpolation='midpoint'),BM)+1==6,NULL,asof(quantileSeries(BM,[0,0.2,0.4,0.6,0.8],interpolation='midpoint'),BM)+1) from tmp context by time_avail_m 
+    update tmp set tempsort=tempsort+1
+    tmp= select permno,time_avail_m ,iif(tempsort<=2, NULL , NetDebtPrice_q1) as NetDebtPrice_q2 from tmp
+    return (tmp.permno,tmp.time_avail_m,tmp.NetDebtPrice_q2)
+}
+
+
+
+def netPayoutYieldQ(time_avail_m,mve_c, dvpsxq, cshoq, ajexq, prstkcyq, pstkq, sstkyq){
+    //Net Payout Yield (quarterly)
+    tempDiv = dvpsxq * cshoq * ajexq
+    tempTotalPayout = tempDiv + prstkcyq + (pstkq - stataMoveM(time_avail_m,pstkq, 3))
+    return (tempTotalPayout - sstkyq - (pstkq - stataMoveM(time_avail_m,pstkq, 3))) \ mve_c
+}
+
+
+
+def opLeverageQ(xsgaq, cogsq, atq){
+    //Operating Leverage (quarterly)
+    tempxsga = iif(isValid(xsgaq), xsgaq, 0)
+    return (tempxsga + cogsq) \ atq
+}
+
+
+
+def operProfLag(revt,cogs,xsga,xint,ceq,mve_c,time_avail_m){
+    //Operating Profits to lagged equity
+    t = table(revt, cogs, xsga, xint, ceq, mve_c, time_avail_m)
+    t= select tempprof = (revt - cogs - xsga - xint) \stataMoveM(time_avail_m,ceq,12), mve_c from t
+    t= select *,tempsizeq = iif(asof(quantileSeries(mve_c, [0,1\3,2\3]),mve_c)+1==4,NULL,asof(quantileSeries(mve_c, [0,1\3,2\3]),mve_c)+1) from t context by time_avail_m
+    OperProfLag = exec iif(tempsizeq==1,NULL,tempprof) from t 
+    return OperProfLag
+}
+
+def operProfLagQ(cogsq,xsgaq,xintq,revtq,seqq,ceqq,pstkq,atq,ltq,txditcq){
+    //Quarterly operating profits to lagged equity
+    txditcq0= nullFill(txditcq,0)
+    tmp = table(cogsq,xsgaq,xintq)
+    for(v in `cogsq`xsgaq`xintq){
+        tmp[v] = iif(tmp[v].isNull(), 0, tmp[v])
+    }
+    OperProfLag_q = revtq-tmp.cogsq-tmp.xsgaq-tmp.xintq
+    OperProfLag_q = iif(!isValid(tmp.cogsq)&&!isValid(tmp.xsgaq)&&!isValid(tmp.xintq), NULL, OperProfLag_q)
+    tempSE = seqq
+    tempSE = iif(!isValid(tempSE), ceqq+pstkq, tempSE)
+    tempSE = iif(!isValid(tempSE), atq-ltq, tempSE)
+    OperProfLag_q = iif(!isValid(txditcq0), OperProfLag_q\(tempSE-pstkq),OperProfLag_q \ (tempSE+txditcq0-pstkq))
+    return OperProfLag_q
+}
+
+
+
+def operProfRDLagAT(time_avail_m,xrd,revt,cogs,xsga,at){
+    //Operating profits to lagged assets
+    tempXRD = iif(isValid(xrd),xrd,0)
+    OperProfRDLagAT = (revt-cogs-xsga+tempXRD)\stataMoveM(time_avail_m,at,12)
+    return OperProfRDLagAT
+}
+
+
+
+def operProfRDLagATQ(time_avail_m,xrdq, revtq, cogsq, xsgaq, atq){
+    //Operating profits to lagged assets (quarterly)
+    tempXRD = iif(isValid(xrdq), xrdq, 0)
+    return (revtq- cogsq - xsgaq + tempXRD) \ stataMoveM(time_avail_m,atq, 3)
+}
+
+
+
+def pMQ(niq, revtq){
+    //Profit Margin (quarterly)
+    return niq \ revtq
+}
+
+
+
+def rDQ(xrdq, mve_c){
+    //R&D-to-market cap (quarterly)
+    return xrdq \ mve_c
+}
+
+
+
+def retNOA(time_avail_m,at, ceq, che, ivao, dlc, dltt, mib, pstk, oiadp){
+    //Return on Net Operating Assets
+    tempOA = iif(isValid(ivao), at - che - ivao, at - che)
+    tempdlc = dlc.nullFill(0)
+    tempdltt = dltt.nullFill(0)
+    tempmib = mib.nullFill(0)
+    temppstk = pstk.nullFill(0)
+    tempOL = at - tempdlc - tempdltt - tempmib - temppstk - ceq
+    return stataMoveM(time_avail_m,oiadp, 12) / (stataMoveM(time_avail_m,tempOA, 24) - stataMoveM(time_avail_m,tempOL, 24))
+}
+
+
+
+def retNOAQ(time_avail_m,atq, ceqq, cheq, ivaoq, dlcq, dlttq, mibq, pstkq, oiadpq){
+    //Return on Net Operating Assets (quarterly)
+    tempOA = iif(isValid(ivaoq), atq - cheq - ivaoq, atq - cheq)
+    tempdlcq = dlcq.nullFill(0)
+    tempdlttq = dlttq.nullFill(0)
+    tempmibq = mibq.nullFill(0)
+    temppstkq = pstkq.nullFill(0)
+    tempOL = atq - tempdlcq - tempdlttq - tempmibq - temppstkq - ceqq
+    return oiadpq \ (stataMoveM(time_avail_m,tempOA, 3) - stataMoveM(time_avail_m,tempOL, 3))
+}
+
+def sPQ(saleq, mve_c){
+    //Sales-to-price ratio (quarterly)
+    return saleq \ mve_c
+}
+
+
+
+def taxQ(piq, niq){
+    //Taxable income to income
+    return iif(piq > 0 && niq > 0, piq \ niq, NULL)
+}
+
+
+
+
+def zScore(act, lct, at, lt, re, ni, xint, txt, revt, mve_c){
+    //Altman Z-Score
+    ZScore = 1.2 * (act - lct) \ at + 1.4 * (re \ at) + 3.3 * (ni + xint + txt) \ at + 0.6 * (mve_c \ lt) + revt \ at
+    return ZScore
+}
+
+
+
+//需要修改年份为10
+def zz1EarningsPersistence(epspx, ajex, time_avail_m){
+    temp = epspx \ ajex
+    tempLag = move(temp, 1)
+    EarningsPersistence = mslr(temp, tempLag, window = 3, minPeriods = 3)[1]
+    rmse = pow(mmse(temp, tempLag, window = 3, minPeriods = 3)[1]*3,0.5)
+    EarningsPredictability = pow(rmse,2)
+    return EarningsPersistence,EarningsPredictability
+}
+
+
+// defg earningsValueRelevanceRegression(x1,x2,y){
+//     return ols(y, (x1,x2),,2).RegressionStat[0,1]
+// }
+// def movingEarningsValueRelevance(x1, x2, y, window, minPeriods){
+//     return moving(earningsValueRelevanceRegression, (x1, x2, y), window, minPeriods)
+// }
+
+// defg earningsConservatismRegression(x1,x2,x3,y){
+//     params = ols(y, (x1,x2),,0)
+//     return (params[2] + params[3]) \ params[2]
+// }
+// def movingEarningsConservatism(x1, x2, x3, y, window, minPeriods){
+//     return moving(earningsConservatismRegression, (x1, x2, x3, y), window, minPeriods)
+// }
+
+// defg earningsTimelinessRegression(x1,x2,x3,y){
+//     return ols(y, (x1,x2,x3),,2).RegressionStat[0,1]
+// }
+// def movingEarningsTimeliness(x1, x2, x3, y, window, minPeriods){
+//     return moving(earningsTimelinessRegression, (x1, x2, x3, y), window, minPeriods)
+// }
+
+
+// def zZ1EarningsValueRelevance1(permno, time_avail_m, ret, prc, shrout){
+//     ret0 = nullFill(ret, 0)
+//     tempMom15m = (1+move(ret0,-2))*(1+move(ret0,-1))*(1+ret0)*(1+stataMoveM(time_avail_m,ret0,1))*(1+stataMoveM(time_avail_m,ret0,2))*(1+stataMoveM(time_avail_m,ret0,3))*(1+stataMoveM(time_avail_m,ret0,4))*(1+stataMoveM(time_avail_m,ret0,5))*(1+stataMoveM(time_avail_m,ret0,6))*(1+stataMoveM(time_avail_m,ret0,7))*(1+stataMoveM(time_avail_m,ret0,8))*(1+stataMoveM(time_avail_m,ret0,9))*(1+stataMoveM(time_avail_m,ret0,10))*(1+stataMoveM(time_avail_m,ret0,11))-1
+//     tempmktcap = abs(prc) * shrout 
+//     return tempMom15m, tempmktcap
+// }
+
+// def zZ1EarningsValueRelevance(ib,tempMom15m, tempmktcap){
+//     tempEarn = ib\tempmktcap
+//     tempDEarn = (ib - move(ib,12))\tempmktcap
+//     // Regression for value relevance of earnings
+//     EarningsValueRelevance = movingEarningsValueRelevance(tempMom15m, tempEarn, tempDEarn,10,10)
+//     tempNeg = iif(isValid(tempMom15m), tempMom15m<0, NULL)
+//     tempInter = tempNeg*tempMom15m
+//     EarningsTimeliness = movingEarningsTimeliness(tempNeg,tempMom15m,tempInter,tempEarn,10,10)
+//     EarningsConservatism = movingEarningsConservatism(tempNeg,tempMom15m,tempInter,tempEarn,10,10)
+//     return EarningsValueRelevance
+// }
+
+
+// def zZ1EarningsTimeliness(ib,tempMom15m, tempmktcap){
+//     tempEarn = ib\tempmktcap
+//     tempDEarn = (ib - move(ib,12))\tempmktcap
+//     // Regression for value relevance of earnings
+//     EarningsValueRelevance = movingEarningsValueRelevance(tempMom15m, tempEarn, tempDEarn,10,10)
+//     tempNeg = iif(isValid(tempMom15m), tempMom15m<0, NULL)
+//     tempInter = tempNeg*tempMom15m
+//     EarningsTimeliness = movingEarningsTimeliness(tempNeg,tempMom15m,tempInter,tempEarn,10,10)
+//     EarningsConservatism = movingEarningsConservatism(tempNeg,tempMom15m,tempInter,tempEarn,10,10)
+//     return EarningsTimeliness
+// }
+
+
+// def zZ1EarningsConservatism(ib,tempMom15m, tempmktcap){
+//     tempEarn = ib\tempmktcap
+//     tempDEarn = (ib - move(ib,12))\tempmktcap
+//     // Regression for value relevance of earnings
+//     EarningsValueRelevance = movingEarningsValueRelevance(tempMom15m, tempEarn, tempDEarn,10,10)
+//     tempNeg = iif(isValid(tempMom15m), tempMom15m<0, NULL)
+//     tempInter = tempNeg*tempMom15m
+//     EarningsTimeliness = movingEarningsTimeliness(tempNeg,tempMom15m,tempInter,tempEarn,10,10)
+//     EarningsConservatism = movingEarningsConservatism(tempNeg,tempMom15m,tempInter,tempEarn,10,10)
+//     return EarningsConservatism
+// }
+
+
+def zz1PM(permno, time_avail_m,ni, revt){
+    //Profit Margin
+    //Change in Profit Margin
+    PM = ni \ revt
+    return PM
+}
+
+def zz1ChPM(permno, time_avail_m,ni, revt){
+    //Profit Margin
+    //Change in Profit Margin
+    PM = ni \ revt
+    ChPM = PM - move(PM, 12)
+    return ChPM
+}
+
+def zz1Currat(act, che, rect, invt, lct, ap){
+    //Current Ratio
+    //Change in current ratio
+    act2 = iif(isNull(act), che + rect + invt, act)
+    lct1 = iif(isNull(lct), ap,lct)
+    currat = act2 \ lct1
+    return currat
+}
+
+def zz1Pchcurrat(time_avail_m,act, che, rect, invt, lct, ap){
+    //Current Ratio
+    //Change in current ratio
+    act2 = iif(isNull(act), che + rect + invt, act)
+    lct1 = iif(isNull(lct), ap,lct)
+    currat = act2 \ lct1
+    pchcurrat = (currat - stataMoveM(time_avail_m,currat, 12)) \ stataMoveM(time_avail_m,currat, 12)
+    return pchcurrat.nullFill(0)
+}
+
+
+
+defg AccrualQualityResid(y, x1, x2, x3, x4, x5){
+    return ols(y, (x1, x2, x3, x4, x5), mode = 2).Residual
+}
+
+
+def zz2AccrualQuality(sic,gvkey, act, lct, che, dlc, dp, at, ppegt, sale, ib, fyear, permno, time_avail_m) {
+    data = table(sic,gvkey, act, lct, che, dlc, dp, at, ppegt, sale, ib, fyear, permno, time_avail_m)
+    update data set tempAccruals = ((act - stataMoveY(fyear,act, 1)) - (che - stataMoveY(fyear,che, 1)) -((lct - stataMoveY(fyear,lct, 1))  - (dlc - stataMoveY(fyear,dlc, 1))) - dp) \ ((at + stataMoveY(fyear,at, 1))\2) context by gvkey
+    update data set tempCAcc = tempAccruals + dp\((at+stataMoveY(fyear,at, 1))\2) context by gvkey
+    update data set tempRev = sale\((at+stataMoveY(fyear,at, 1))\2) context by gvkey
+    update data set tempDelRev = tempRev - stataMoveY(fyear,tempRev, 1) context by gvkey
+    update data set tempPPE = ppegt \ ((at+(stataMoveY(fyear,at, 1)))\2) context by gvkey
+    update data set tempCFO = ib \ ((at+(stataMoveY(fyear,at, 1)))\2) - tempAccruals context by gvkey
+    update data set FF48 = sicff(sic)
+    delete from data where FF48 is null
+
+    update data set tempCFO_lag = stataMoveY(fyear,tempCFO, 1) context by gvkey
+    update data set tempCFO_for = stataMoveY(fyear,tempCFO, -1) context by gvkey
+
+    nullValue = select *, double(null) as tempResid from data where  tempAccruals is null or tempCAcc is null or tempRev is null or tempDelRev is null or tempPPE is null or tempCFO is null or tempCFO_lag is null or tempCFO_for is null or tempDelRev is null
+
+    tmp = select * from data where tempAccruals is not null and tempCAcc is not null and tempRev is not null and tempDelRev is not null and tempPPE is not null and tempCFO is not null and tempCFO_lag is not null and tempCFO_for is not null and tempDelRev is not null
+
+    tmp = select *, AccrualQualityResid(tempCAcc, tempCFO, tempCFO_lag, tempCFO_for, tempDelRev, tempPPE) as tempResid from tmp context by fyear, FF48
+    tmp.append!(nullValue)
+
+
+    // filter at least 20 observations per year and FF48
+
+    update tmp set tempResid = double(NULL) where count(gvkey) < 20 context by fyear, FF48
+    tmp = select * from tmp order by gvkey, fyear
+    // select * from tmp where gvkey = 2282 order by fyear
+    // rolling sd
+
+    update tmp set tempResid1 = tmove(fyear, tempResid, 1) context by gvkey
+    update tmp set tempResid2 = tmove(fyear, tempResid, 2) context by gvkey
+    update tmp set tempResid3 = tmove(fyear, tempResid, 3) context by gvkey
+    update tmp set tempResid4 = tmove(fyear, tempResid, 4) context by gvkey
+    update tmp set AQ = rowStd(tempResid, tempResid1, tempResid2, tempResid3, tempResid4)
+    update tmp set tempN = 5 - rowCount(tempResid, tempResid1, tempResid2, tempResid3, tempResid4) context by gvkey
+    tmp = select * from tmp order by gvkey, fyear
+    result = select *, tmove(fyear, AQ, 1) as AccrualQuality from tmp context by gvkey
+    result = select permno, time_avail_m,AccrualQuality from result
+    return result
+}
+
+
+def zz2AccrualQualityJune(sic,gvkey, act, lct, che, dlc, dp, at, ppegt, sale, ib, fyear, permno, time_avail_m) {
+    data = table(sic,gvkey, act, lct, che, dlc, dp, at, ppegt, sale, ib, fyear, permno, time_avail_m)
+    update data set tempAccruals = ((act - stataMoveY(fyear,act, 1)) - (che - stataMoveY(fyear,che, 1)) -((lct - stataMoveY(fyear,lct, 1))  - (dlc - stataMoveY(fyear,dlc, 1))) - dp) \ ((at + stataMoveY(fyear,at, 1))\2) context by gvkey
+    update data set tempCAcc = tempAccruals + dp\((at+stataMoveY(fyear,at, 1))\2) context by gvkey
+    update data set tempRev = sale\((at+stataMoveY(fyear,at, 1))\2) context by gvkey
+    update data set tempDelRev = tempRev - stataMoveY(fyear,tempRev, 1) context by gvkey
+    update data set tempPPE = ppegt \ ((at+(stataMoveY(fyear,at, 1)))\2) context by gvkey
+    update data set tempCFO = ib \ ((at+(stataMoveY(fyear,at, 1)))\2) - tempAccruals context by gvkey
+    update data set FF48 = sicff(sic)
+    delete from data where FF48 is null
+
+    update data set tempCFO_lag = stataMoveY(fyear,tempCFO, 1) context by gvkey
+    update data set tempCFO_for = stataMoveY(fyear,tempCFO, -1) context by gvkey
+
+    nullValue = select *, double(null) as tempResid from data where  tempAccruals is null or tempCAcc is null or tempRev is null or tempDelRev is null or tempPPE is null or tempCFO is null or tempCFO_lag is null or tempCFO_for is null or tempDelRev is null
+
+
+    tmp = select * from data where tempAccruals is not null and tempCAcc is not null and tempRev is not null and tempDelRev is not null and tempPPE is not null and tempCFO is not null and tempCFO_lag is not null and tempCFO_for is not null and tempDelRev is not null
+
+    tmp = select *, AccrualQualityResid(tempCAcc, tempCFO, tempCFO_lag, tempCFO_for, tempDelRev, tempPPE) as tempResid from tmp context by fyear, FF48
+    tmp.append!(nullValue)
+
+
+    // filter at least 20 observations per year and FF48
+
+    update tmp set tempResid = double(NULL) where count(gvkey) < 20 context by fyear, FF48
+    tmp = select * from tmp order by gvkey, fyear
+    // select * from tmp where gvkey = 2282 order by fyear
+    // rolling sd
+
+    update tmp set tempResid1 = tmove(fyear, tempResid, 1) context by gvkey
+    update tmp set tempResid2 = tmove(fyear, tempResid, 2) context by gvkey
+    update tmp set tempResid3 = tmove(fyear, tempResid, 3) context by gvkey
+    update tmp set tempResid4 = tmove(fyear, tempResid, 4) context by gvkey
+    update tmp set AQ = rowStd(tempResid, tempResid1, tempResid2, tempResid3, tempResid4)
+    update tmp set tempN = 5 - rowCount(tempResid, tempResid1, tempResid2, tempResid3, tempResid4) context by gvkey
+    tmp = select * from tmp order by gvkey, fyear
+    result = select *, tmove(fyear, AQ, 1) as AccrualQuality from tmp context by gvkey
+
+    result = stretch(result, 12*size(result))
+    // 把时间转换成月份1-12
+    // time_avail_m + rowNo
+    update result set time_avail_m = time_avail_m +rowNo(permno) context by permno, time_avail_m
+
+    result = select permno, time_avail_m, iif(monthOfYear(time_avail_m) == 6, AccrualQuality, double(NULL)) as AccrualQualityJune from result
+    result = select permno, time_avail_m, AccrualQualityJune.ffill() as AccrualQualityJune from result context by permno
+    return result
+}
+
+
+
+
+def cashDebt(time_avail_m,ib, dp, lt){
+    //Cash flow to debt
+    return (ib + dp) \ ((lt + stataMoveM(time_avail_m,lt, 12)) \ 2)
+}
+
+
+
+
+def cfpq(time_avail_m,mve_c, actq, cheq, lctq, dlcq, txpq, dpq, ibq, oancfyq){
+    //Cash flow to price (quarterly)
+    tempAccrual_level = (actq - stataMoveM(time_avail_m,actq, 12) - (cheq - stataMoveM(time_avail_m,cheq, 12))) -
+                        ((lctq - stataMoveM(time_avail_m,lctq, 12)) - (dlcq - stataMoveM(time_avail_m,dlcq, 12)) -
+                        (txpq - stataMoveM(time_avail_m,txpq, 12)) - dpq)
+    cfpq = (ibq - tempAccrual_level) \ mve_c
+    return iif(isValid(oancfyq), oancfyq \ mve_c, cfpq)
+}
+
+
+def depr(dp, ppent){
+    //Depreciation to PPE
+    return dp \ ppent
+}
+
+
+
+def pchDepr(time_avail_m,dp, ppent){
+    //Change in depreciation to gross PPE
+    return ((dp \ ppent) - (stataMoveM(time_avail_m,dp, 12) \ stataMoveM(time_avail_m,ppent, 12))) \ (stataMoveM(time_avail_m,dp, 12) \ stataMoveM(time_avail_m,ppent, 12))
+}
+
+
+
+def pchgmPchSale(time_avail_m,sale, cogs){
+    //Margin growth over sales growth
+    return (((sale - cogs) - (stataMoveM(time_avail_m,sale, 12) - stataMoveM(time_avail_m,cogs, 12))) \
+            (stataMoveM(time_avail_m,sale, 12) - stataMoveM(time_avail_m,cogs, 12))) -
+            ((sale - stataMoveM(time_avail_m,sale, 12)) \ stataMoveM(time_avail_m,sale, 12))
+}
+
+
+
+def pchQuick(time_avail_m,act, invt, lct){
+    //Change in quick ratio
+    pchquick = ((act - invt) \ lct - (stataMoveM(time_avail_m,act, 12) - stataMoveM(time_avail_m,invt, 12)) \ stataMoveM(time_avail_m,lct, 12)) \
+                ((stataMoveM(time_avail_m,act, 12) - stataMoveM(time_avail_m,invt, 12)) \ stataMoveM(time_avail_m,lct, 12))
+    return iif(isNull(pchquick) && isNull(stataMoveM(time_avail_m,pchquick, 2)), 0, pchquick)
+}
+
+
+
+def pchSaleInv(time_avail_m,sale, invt){
+    //Change in sales to inventory
+    return ((sale \ invt) - (stataMoveM(time_avail_m,sale, 12) \ stataMoveM(time_avail_m,invt, 12))) \ (stataMoveM(time_avail_m,sale, 12) \ stataMoveM(time_avail_m,invt, 12))
+}
+
+
+
+def quick(act, invt, lct){
+    //Quick ratio
+    return (act - invt) \ lct
+}
+
+
+
+def rdSale(time_avail_m,xrd, sale){
+    //R&D-to-sales ratio
+    rd_sale = stataMoveM(time_avail_m,xrd, 12) \ stataMoveM(time_avail_m,sale, 12)
+    return iif(rd_sale == 0, NULL, rd_sale)
+}
+
+
+
+def rdSaleQ(time_avail_m,xrdq, saleq){
+    //R&D-to-sales ratio (quarterly)
+    rd_sale_q = stataMoveM(time_avail_m,xrdq, 12) \ stataMoveM(time_avail_m,saleq, 12)
+    return iif(rd_sale_q == 0, NULL, rd_sale_q)
+}
+
+
+
+def roaVol(time_avail_m,ibq, atq){
+    //RoA volatility
+    roaq = ibq \ stataMoveM(time_avail_m,atq,3)
+    roavol = mstd(roaq, 48, 24)
+    return roavol
+}
+
+
+def roIc(ebit, nopi, ceq, lt, che){
+    //Return on invested capital
+    return (ebit - nopi) \ (ceq + lt - che)
+}
+
+
+
+def saleCash(sale, che){
+    //Sales to cash
+    return sale \ che
+}
+
+
+
+def saleInv(sale, invt){
+    //Sales to inventory
+    return sale \ invt
+}
+
+
+
+def saleRec(sale, rect){
+    //Sales to receivables
+    return sale \ rect
+}
+
+
+
+def secured(dm, dltt, dlc){
+    //Secured debt over liabilities
+    secured = dm \ (dltt + dlc)
+    return iif(isNull(dltt) || dltt == 0 || isNull(dlc), 0, secured)
+}
+
+
+
+def securedInd(dm){
+    //Secured debt indicator
+    return iif(isValid(dm) && dm != 0, 1, 0)
+}
+
+
+
+def sgr(time_avail_m,sale){
+    //Annual sales growth
+    return (sale \ stataMoveM(time_avail_m,sale, 12)) - 1
+}
+
+
+
+def sgrQ(time_avail_m,saleq){
+    //Quarterly sales growth
+    return (saleq \ stataMoveM(time_avail_m,saleq, 12)) - 1
+}
+
+
+
+def tangQ(cheq, rectq, invtq, ppegtq, atq){
+    //Tangibility (quarterly)
+    return (cheq + 0.715 * rectq + 0.547 * invtq + 0.535 * ppegtq) \ atq
+}

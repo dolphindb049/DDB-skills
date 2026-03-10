@@ -1,0 +1,164 @@
+// FICC API 2026 Skill - Step 1: 建库建表（schema）
+// 说明：
+// 1) 该文件会被 Python 主流程读取并执行；
+// 2) __DB_PATH__ 占位符会在运行时替换为 DDB_DB_PATH；
+// 3) 为保证重跑幂等，默认先 drop 再 create。
+
+if(existsDatabase("__DB_PATH__")){
+    dropDatabase("__DB_PATH__")
+}
+database("__DB_PATH__", HASH, [SYMBOL, 31])
+
+CREATE TABLE "__DB_PATH__"."api_getBond" (
+    secID STRING [comment="证券ID"],
+    ticker STRING [comment="交易代码"],
+    exchangeCD STRING [comment="交易市场编码"],
+    bondID STRING [comment="债券ID"],
+    secFullName STRING [comment="债券全称"],
+    secShortName STRING [comment="债券简称"],
+    listStatusCD STRING [comment="上市状态"],
+    partyID LONG [comment="发行人ID"],
+    issuer STRING [comment="发行人"],
+    totalSize DOUBLE [comment="累计发行总额(亿元)"],
+    remainSize DOUBLE [comment="剩余规模(亿元)"],
+    currencyCD STRING [comment="货币代码"],
+    couponTypeCD STRING [comment="计息方式"],
+    cpnFreqCD STRING [comment="付息频率"],
+    paymentCD STRING [comment="兑付方式"],
+    coupon DOUBLE [comment="票面年利率(%)"],
+    par DOUBLE [comment="债券面值(元)"],
+    hybridCD STRING [comment="混合方式"],
+    typeID STRING [comment="债券分类ID"],
+    typeName STRING [comment="分类名称"],
+    publishDate DATE [comment="信息发布日期"],
+    listDate DATE [comment="上市日期"],
+    delistDate DATE [comment="退市日期"],
+    actMaturityDate DATE [comment="实际到期日"],
+    firstAccrDate DATE [comment="起息日"],
+    maturityDate DATE [comment="到期日"],
+    firstRedempDate DATE [comment="首次兑付日"],
+    minCoupon DOUBLE [comment="保底利率(%)"],
+    frnRefRateCD STRING [comment="浮息债参考利率指标"],
+    frnCurrBmkRate DOUBLE [comment="浮息债首次参考利率(%)"],
+    frnMargin DOUBLE [comment="浮息债利差(%)"],
+    privPlacemFlag SHORT [comment="非公开定向标志"],
+    issueInvNum SHORT [comment="初始定向投资人数量"],
+    privInvNum SHORT [comment="定向投资人数量"],
+    isOption INT [comment="是否含权"],
+    absIssuerID LONG [comment="发起机构ID"],
+    absIssuer STRING [comment="发起机构"],
+    absLevelCD STRING [comment="分层级别"],
+    absLevelRatio DOUBLE [comment="规模分层占比(%)"],
+    absCouponCap STRING [comment="利率上限说明"]
+)
+PARTITIONED BY secID
+comment = "getBond-债券基本信息输出参数表"
+
+CREATE TABLE "__DB_PATH__"."api_getBondCfNew" (
+    secID STRING [comment="证券编码"],
+    ticker STRING [comment="交易代码"],
+    bondID STRING [comment="债券ID"],
+    exchangeCD STRING [comment="交易市场代码"],
+    secShortName STRING [comment="债券简称"],
+    cashTypeCD STRING [comment="现金流类型"],
+    intePeriod INT [comment="计息周期"],
+    perAccrDate DATE [comment="本周期计息起始日"],
+    perAccrEndDate DATE [comment="本周期计息截止日"],
+    paymentDate DATE [comment="现金流日期"],
+    recordDate DATE [comment="债权登记日"],
+    exDivDate DATE [comment="除权除息日"],
+    interest DOUBLE [comment="每百元面额付息"],
+    payment DOUBLE [comment="每百元面额兑付本金"],
+    totalSize DOUBLE [comment="债券总额"]
+)
+PARTITIONED BY secID
+comment = "getBondCfNew-债券现金流-新输出参数表"
+
+CREATE TABLE "__DB_PATH__"."api_getBondTicker" (
+    bondID STRING [comment="债券ID"],
+    secID STRING [comment="证券编码"],
+    ticker STRING [comment="交易代码"],
+    exchangeCD STRING [comment="交易市场代码"],
+    secShortName STRING [comment="证券简称"],
+    secFullName STRING [comment="证券全称"]
+)
+PARTITIONED BY secID
+comment = "getBondTicker-债券代码对照表输出参数表"
+
+CREATE TABLE "__DB_PATH__"."api_getBondType" (
+    secID STRING [comment="证券内部编码"],
+    ticker STRING [comment="交易代码"],
+    exchangeCD STRING [comment="交易市场编码"],
+    bondID STRING [comment="债券ID"],
+    bondShortName STRING [comment="债券简称"],
+    bondFullName STRING [comment="债券全称"],
+    typeID STRING [comment="债券分类ID"],
+    typeName STRING [comment="债券分类名称"]
+)
+PARTITIONED BY secID
+comment = "getBondType-债券类型输出参数表"
+
+CREATE TABLE "__DB_PATH__"."api_getCFETSValuation" (
+    secID STRING [comment="证券内部ID"],
+    ticker STRING [comment="债券代码"],
+    secShortName STRING [comment="债券简称"],
+    tradeDate DATE [comment="估值日期"],
+    bondType STRING [comment="债券类型"],
+    grossPx DOUBLE [comment="估值全价"],
+    netPx DOUBLE [comment="估值净价"],
+    ytm DOUBLE [comment="估值收益率"],
+    couponType STRING [comment="息票类型"],
+    modifiedDuration DOUBLE [comment="估值修正久期"],
+    convexity DOUBLE [comment="估值凸性"],
+    baseRate DOUBLE [comment="估值基点价值"],
+    spreadDuration DOUBLE [comment="估值利差久期"],
+    spreadConvexity DOUBLE [comment="估值利差凸性"],
+    spotDuration DOUBLE [comment="估值利率久期"],
+    spotConvexity DOUBLE [comment="估值利率凸性"]
+)
+PARTITIONED BY secID
+comment = "getCFETSValuation-中国外汇交易中心估值输出参数表"
+
+CREATE TABLE "__DB_PATH__"."api_getMktIBBondd" (
+    secID STRING [comment="证券编码"],
+    ticker STRING [comment="交易代码"],
+    secShortName STRING [comment="债券简称"],
+    exchangeCD STRING [comment="交易市场编码"],
+    tradeDate DATE [comment="交易日期"],
+    preClosePrice DOUBLE [comment="前收盘净价"],
+    preWAVGPrice DOUBLE [comment="前加权平均净价"],
+    openPrice DOUBLE [comment="开盘净价"],
+    highestPrice DOUBLE [comment="最高净价"],
+    lowestPrice DOUBLE [comment="最低净价"],
+    closePrice DOUBLE [comment="收盘净价"],
+    wAvgPrice DOUBLE [comment="加权平均净价"],
+    chgPct DOUBLE [comment="净价涨跌幅"],
+    turnoverVol DOUBLE [comment="成交量"],
+    preCloseYield DOUBLE [comment="前收盘收益率"],
+    preWAVGYield DOUBLE [comment="前加权平均收益率"],
+    openYield DOUBLE [comment="开盘收益率"],
+    highestYield DOUBLE [comment="最高收益率"],
+    lowestYield DOUBLE [comment="最低收益率"],
+    closeYield DOUBLE [comment="收盘收益率"],
+    wAvgYield DOUBLE [comment="加权平均收益率"],
+    grossClosePrice DOUBLE [comment="收盘价(全价)"],
+    accrInterest DOUBLE [comment="应计利息"],
+    YTM DOUBLE [comment="到期收益率"]
+)
+PARTITIONED BY secID
+comment = "getMktIBBondd-银行间现券日行情输出参数表"
+
+CREATE TABLE "__DB_PATH__"."api_table_comment_meta" (
+    tableName STRING [comment="表名"],
+    tableComment STRING [comment="表注释"]
+)
+PARTITIONED BY tableName
+comment = "API表注释元数据"
+
+meta = table(
+    ["api_getBond","api_getBondCfNew","api_getBondTicker","api_getBondType","api_getCFETSValuation","api_getMktIBBondd"] as tableName,
+    ["getBond-债券基本信息输出参数表","getBondCfNew-债券现金流-新输出参数表","getBondTicker-债券代码对照表输出参数表","getBondType-债券类型输出参数表","getCFETSValuation-中国外汇交易中心估值输出参数表","getMktIBBondd-银行间现券日行情输出参数表"] as tableComment
+)
+loadTable("__DB_PATH__", "api_table_comment_meta").append!(meta)
+
+"schema_done"

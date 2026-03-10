@@ -1,0 +1,240 @@
+module CSAPDataSimulation
+
+def generateCCMLinkingTable() {
+    colNames = `col0`gvkey`conm`tic`cusip`cik`sic`naics`linkprim`linktype`liid`lpermno`lpermco
+    colTypes = [INT, SYMBOL, STRING, SYMBOL, INT, SYMBOL, SYMBOL, INT, CHAR, SYMBOL, SYMBOL, DOUBLE, DOUBLE]
+    data = table(
+        0..(10000) as col0,                
+        symbol(string(001000..011000)) as gvkey,
+        array(STRING, 10001,,null) as conm,
+        array(SYMBOL, 10001,,null) as tic,
+        rand(100000, 10001)+rand(500000, 10001) as cusip,                         
+        array(SYMBOL, 10001,,null) as cik,
+        symbol(string(rand(10000, 10001))) as sic,
+        rand(100000, 10001) as naics,
+        array(CHAR, 10001,,null) as linkprim,
+        array(SYMBOL, 10001,,null) as linktype,
+        array(SYMBOL, 10001,,null) as liid,
+        double(rand(100000, 10001)) as lpermno, 
+        double(rand(100000, 10001)) as lpermco
+    )
+    return data
+}
+// aaa = generateCCMLinkingTable()
+
+
+def generateCRSPDistributionData(permno, startYear, endYear) {
+    colNames = `col0`permno`divamt`distcd`facshr`rcrddt`exdt`paydt
+    colTypes = [INT, SYMBOL, INT, SYMBOL, DOUBLE, DATE, DATE, DATE]
+    n = size(permno)
+    m = endYear-startYear+1
+    years = take(startYear..endYear, n*m)
+    data = table(
+        0..(m*n-1) as col0,                
+        sort(take(permno, n*m)) as permno,                  
+        double(take(0, n*m)) as divamt,                         
+        take(5523, n*m) as distcd,                        
+        1 - 0.5 * (years mod 2) as facshr, 
+        date(split(concat(concat(string(years),  '.01.01 '), `.01.01), ' ')) as rcrddt,         
+        date(split(concat(concat(string(years),  '.01.15 '), `.01.15), ' ')) as exdt,          
+        date(split(concat(concat(string(years),  '.01.20 '), `.01.20), ' ')) as paydt         
+    )
+    return data
+}
+// permno = 10107 12333
+// startYear = 1987
+// endYear = 2023
+// generateCRSPDistributionData(10107 12333, 1987, 2023)
+
+def generateCompustatAnnual(gvkey, startYear, endYear){
+    colNames = `col0`gvkey`datadate`fyear`aco`act`ajex`am`ao`ap`at`capx`ceq`che`cogs`csho`cshrc`dlc`dlcch`dltis`dltr`dltt`dm`dp`drc`drlt`dv`dvc`dvp`dvpa`dvpsx_c`dvt`ebit`ebitda`emp`epspi`epspx`fatb`fatl`fincf`fopt`gdwl`ib`ibcom`intan`invt`ivao`ivncf`ivst`lco`lct`lo`mib`msa`ni`nopi`oancf`ob`oiadp`oibdp`pi`ppenb`ppegt`ppenls`ppent`prcc_f`prstkc`prstkcc`pstk`pstkl`pstkrv`re`rect`recta`revt`sale`seq`spi`sstk`tstkp`txdb`txdi`txditc`txfo`txfed`txp`txt`wcap`wcapch`xacc`xad`xint`xrd`xpp`xsga
+    colTypes = [INT, SYMBOL, DATE, INT, DOUBLE, DOUBLE, DOUBLE, DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,SYMBOL,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE]
+    n = size(gvkey)
+    m = endYear-startYear+1
+    years = take(startYear..endYear, n*m)
+    data = table(
+        0..(m*n-1) as col0,           
+        symbol(string(sort(take(gvkey, n*m)))) as gvkey,   
+        date(split(concat(concat(string(years),  '.12.31 '), `.12.31), ' ')) as datadate,         
+        years as fyear                         
+    )
+    for (i in 4..(size(colNames)-1)){
+        if (colTypes[i] == 16){
+            data[colNames[i]] = double(rand(1000, n*m))
+        }
+        else{
+            data[colNames[i]] = symbol(string(rand(10000, n*m)))
+        }
+    }
+    return data
+}
+// gvkey = 10107 12333
+// startYear = 1987
+// endYear = 2023
+// data = generateCompustatAnnual(10107 12333, 1987, 2023)
+
+
+def generateCompustatPensions(gvkey, startYear, endYear) {
+    colNames = `col0`gvkey`datadate`paddml`pbnaa`pbnvv`pbpro`pbpru`pcupsu`pplao`pplau
+    colTypes = [INT, SYMBOL, DATE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE]
+    n = size(gvkey)
+    m = endYear-startYear+1
+    years = take(startYear..endYear, n*m)
+    data = table(
+        0..(m*n-1) as col0,           
+        symbol(string(sort(take(gvkey, n*m)))) as gvkey,   
+        date(split(concat(concat(string(years),  '.12.31 '), `.12.31), ' ')) as rcrddt,         
+        take(0, n*m) as paddml,                         
+        double(rand(6, n*m)) as pbnaa, 
+        double(rand(200, n*m)) as pbnvv, 
+        double(rand(200, n*m)) as pbpro, 
+        double(rand(200, n*m)) as pbpru, 
+        double(rand(200, n*m)) as pcupsu, 
+        double(rand(200, n*m)) as pplao, 
+        double(rand(200, n*m)) as pplau
+    )
+    return data
+}
+// gvkey = 10107 12335
+// startYear = 1987
+// endYear = 2023
+// generateCompustatPensions(10107 12335, 1987, 2023)
+
+def generateDailyFF(startYear, endYear){
+    date_list = date(concat(string(startYear),'.01.01'))..date(concat(string(endYear),'.12.31'))
+    n = size(date_list)
+    data = table(date_list as date, round(rand(0.05, n), 4) as mktrf, round(rand(0.05, n), 4) as smb, round(rand(0.05, n), 4) as hml, round(rand(0.05, n), 4) as rf, round(rand(0.05, n), 4) as umd)
+    return data
+}
+// startYear = 1987
+// endYear = 2023
+// generatedailyFF(startYear, endYear)
+
+
+def generateCRSPAcquisitions(permno, startYear, endYear){
+    colNames = `col0`gvkey`datadate`paddml`pbnaa`pbnvv`pbpro`pbpru`pcupsu`pplao`pplau
+    colTypes = [INT, SYMBOL, DATE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE]
+    n = size(permno)
+    m = endYear-startYear+1
+    years = take(startYear..endYear, n*m)
+    data = table(
+        0..(m*n-1) as col0,           
+        sort(take(permno, n*m)) as permno,   
+        rand(5000, n*m) as distcd,
+        date(split(concat(concat(string(years),  '.12.31 '), `.12.31), ' ')) as exdt,         
+        rand(5000, n*m) as acperm                   
+    )
+    return data
+}
+// permno = 10107 12335
+// startYear = 1987
+// endYear = 2023
+// generateCRSPAcquisitions(permno, startYear, endYear)
+
+
+def generateQCompustat(gvkey, startYear, endYear){
+    colNames = `col0`gvkey`datadate`fyearq`fqtr`acoq`actq`ajexq`apq`atq`ceqq`cheq`cogsq`cshoq`cshprq`dlcq`dlttq`dpq`drcq`drltq`dvpsxq`dvpq`dvy`epspiq`epspxq`fopty`gdwlq`ibq`invtq`intanq`ivaoq`lcoq`lctq`loq`ltq`mibq`niq`oancfy`oiadpq`oibdpq`piq`ppentq`ppegtq`prstkcy`prccq`pstkq`rdq`req`rectq`revtq`saleq`seqq`sstky`txdiq`txditcq`txpq`txtq`xaccq`xintq`xsgaq`xrdq`capxy
+    colTypes = [INT, SYMBOL, DATE, INT,INT,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,SYMBOL,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DATE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE]
+    n = size(gvkey)
+    m = endYear-startYear+1
+    years = take(startYear..endYear, n*m)
+    data = table(
+        0..(m*n-1) as col0,           
+        symbol(string(sort(take(gvkey, n*m)))) as gvkey,   
+        date(split(concat(concat(string(years),  '.12.31 '), `.12.31), ' ')) as datadate,         
+        years as fyearq,    
+        rand(5,m*n) as fqtr                
+    )
+    for (i in 7..(size(colNames)-1)){
+        if (colTypes[i] == 16){
+            data[colNames[i]] = double(rand(1000, n*m))
+        }
+        else if (colTypes[i] == 17){
+            data[colNames[i]] = symbol(string(rand(10000, n*m)))
+        }
+        else {
+            data[colNames[i]] = data.datadate+30
+        }
+    }
+    return data
+}
+// gvkey = 10107 12333
+// startYear = 1987
+// endYear = 2023
+// data = generateQCompustat(10107 12333, 1987, 2023)
+
+
+def generateMonthlyCRSP(permno, startYear, endYear){
+    colNames = `col0`permno`date`ret`vol`shrout`prc`cfacshr`shrcd`exchcd`shrcls
+    colTypes = [INT, INT, DATE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,SYMBOL]
+    n = size(permno)
+    m = endYear-startYear+1
+    years = take(startYear..endYear, n*m)
+    data = table(
+        0..(m*n-1) as col0,           
+        sort(take(permno, n*m)) as permno,   
+        date(split(concat(concat(string(years),  '.12.31 '), `.12.31), ' ')) as date                     
+    )
+    for (i in 3..(size(colNames)-1)){
+        if (colTypes[i] == 16){
+            data[colNames[i]] = double(rand(1000, n*m))
+        }
+        else {
+            data[colNames[i]] = symbol(string(rand(10000, n*m)))
+        }
+    }
+    return data
+}
+// permno = 10107 12335
+// startYear = 1987
+// endYear = 2023
+// generatemonthlyCRSP(permno, startYear, endYear)
+
+
+def generateMonthlyFF(startYear, endYear){
+    month_list = month(concat(string(startYear),'.01'))..month(concat(string(endYear),'.12'))
+    date_list =  date(month_list)
+    n = size(date_list)
+    data = table(date_list as date, round(rand(0.05, n), 4) as mktrf, round(rand(0.05, n), 4) as smb, round(rand(0.05, n), 4) as hml, round(rand(0.05, n), 4) as rf, round(rand(0.05, n), 4) as umd)
+    return data
+}
+// startYear = 1987
+// endYear = 2023
+// generatemonthlyFF(startYear, endYear)
+
+
+def generateMonthlyLiquidity(startYear, endYear){
+    date_list = date(concat(string(startYear),'.01.01'))..date(concat(string(endYear),'.12.31'))
+    n = size(date_list)
+    data = table(date_list as date, round(rand(0.05, n), 4) as ps_innov)
+    return data
+}
+// startYear = 1987
+// endYear = 2023
+// generatemonthlyLiquidity(startYear, endYear)
+
+def generateMonthlyMarket(startYear, endYear){
+    date_list = date(concat(string(startYear),'.01.01'))..date(concat(string(endYear),'.12.31'))
+    n = size(date_list)
+    data = table(date_list as date, round(rand(0.05, n), 4) as vwretd, round(rand(0.05, n), 4) as ewretd, round(rand(400000.5, n), 4) as usdval)
+    return data
+}
+// startYear = 1987
+// endYear = 2023
+// generatemonthlyMarket(startYear, endYear)
+
+def CSAPDataSimulation(gvkeyList, startYear, endYear){
+    // find gvkey based on permno
+    CCMLinkingTable = generateCCMLinkingTable()
+    permno = exec int(lpermno) from CCMLinkingTable where gvkey in string(gvkeyList)
+    print("permno:")
+    print(permno)
+    gvkey = gvkeyList
+    result = dict(`CCMLinkingTable`CRSPDistributionData`CompustatAnnual`CompustatPensions`dailyFF`m_CRSPAcquisitions`m_QCompustat`monthlyCRSP`monthlyFF`monthlyLiquidity`monthlyMarket, [CCMLinkingTable, generateCRSPDistributionData(permno, startYear, endYear), generateCompustatAnnual(gvkey, startYear, endYear),generateCompustatPensions(gvkey, startYear, endYear),generateDailyFF(startYear, endYear),generateCRSPAcquisitions(permno, startYear, endYear),generateQCompustat(gvkey, startYear, endYear),generateMonthlyCRSP(permno, startYear, endYear),generateMonthlyFF(startYear, endYear),generateMonthlyLiquidity(startYear, endYear),generateMonthlyMarket(startYear, endYear)])
+    return result
+}
+
+// gvkeyList = 10970 10910
+// startYear = 1987
+// endYear = 2023
+// CSAPDataSimulation(permno, gvkey, startYear, endYear)

@@ -1,0 +1,1915 @@
+module CSAPPrepare
+use CSAPFactors
+//Predictors
+def prepareAM(m_aCompustat, SignalMasterTable, startTime, endTime) {
+    adjusted_table = select permno, time_avail_m, at, mve_c
+    from m_aCompustat inner join SignalMasterTable on 
+    SignalMasterTable.permno = m_aCompustat.permno and SignalMasterTable.time_avail_m = m_aCompustat.time_avail_m
+    result = select permno, time_avail_m, am(at, mve_c) as am from adjusted_table where time_avail_m between startTime : endTime
+    return result
+}
+//prepareAM(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M) 
+
+
+def prepareAccruals(m_aCompustat, startTime, endTime) {
+    // 使用 `context by` 分组并保留每组的第一条记录
+    adjusted_table = select * from m_aCompustat context by permno, time_avail_m order by permno time_avail_m limit 1
+    result = select permno, time_avail_m, accruals(txp, act, che, lct, dlc, dp, at) as accruals from adjusted_table where time_avail_m between startTime : endTime
+    return result
+}
+//prepareAccruals(m_aCompustat, 1986.03M, 2010.12M) 
+
+
+def prepareAccrualsBM(m_aCompustat, SignalMasterTable, startTime, endTime) {
+    // 使用 `context by` 分组并保留每组的第一条记录
+    adjusted_table = select * from m_aCompustat context by permno, time_avail_m order by permno time_avail_m limit 1
+    adjusted_table = select adjusted_table.*, SignalMasterTable.mve_c 
+    from adjusted_table inner join SignalMasterTable on 
+    adjusted_table.permno = SignalMasterTable.permno and adjusted_table.time_avail_m = SignalMasterTable.time_avail_m
+
+    result = select permno, time_avail_m, accrualsBM(permno,mve_c,time_avail_m,ceq,act,che,lct,dlc,txp,at) as accrualsbm from adjusted_table where time_avail_m between startTime : endTime
+    return result
+}
+//prepareAccrualsBM(m_aCompustat,SignalMasterTable, 1986.03M, 2010.12M) 
+
+def prepareAdExp(m_aCompustat, SignalMasterTable, startTime, endTime) {
+    // 使用 `context by` 分组并保留每组的第一条记录
+    adjusted_table = select m_aCompustat.*, SignalMasterTable.mve_c 
+    from m_aCompustat inner join SignalMasterTable on 
+    m_aCompustat.permno = SignalMasterTable.permno and m_aCompustat.time_avail_m = SignalMasterTable.time_avail_m
+    result = select permno, time_avail_m, adExp(xad, mve_c) as AdExp from adjusted_table where time_avail_m between startTime : endTime
+    return result
+}
+//prepareAdExp(m_aCompustat,SignalMasterTable, 1986.03M, 2010.12M) 
+
+
+
+def prepareAssetGrowth(m_aCompustat, startTime, endTime) {
+    result = select permno, time_avail_m,assetGrowth(at) as AssetGrowth from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareAssetGrowth(m_aCompustat,1986.03M, 2010.12M) 
+
+
+
+def prepareBM(m_aCompustat, SignalMasterTable, startTime, endTime) {
+    mergedData = select m_aCompustat.*, SignalMasterTable.mve_c from m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m 
+    me_datadate = exec iif(move(mergedData.time_avail_m, 6) != (mergedData.datadate.year() * 12 + mergedData.datadate.month()), NULL,  move(mergedData.mve_c, 6)) from mergedData context by permno
+    mergedData[`me_datadate] = me_datadate
+    update mergedData set me_datadate = me_datadate.ffill()
+    result = select permno, time_avail_m,bm(ceq, mve_c) as bm from mergedData where time_avail_m between startTime : endTime
+    return result
+}
+//prepareBM(m_aCompustat,SignalMasterTable,1986.03M, 2010.12M) 
+
+
+def prepareBMdec(m_aCompustat, monthlyCRSP, startTime, endTime) {
+    mergedData = select permno, time_avail_m, txditc, seq, ceq, at, lt, pstk, pstkrv, pstkl, prc, shrout from m_aCompustat inner join monthlyCRSP on m_aCompustat.permno = monthlyCRSP.permno and  m_aCompustat.time_avail_m  = monthlyCRSP.time_avail_m 
+    result = select permno, time_avail_m,bMdec(time_avail_m,txditc,seq,ceq,at,lt,pstk,pstkrv,pstkl,prc,shrout) as BMdec from mergedData where time_avail_m between startTime : endTime
+    return result
+}
+//prepareBMdec(m_aCompustat,monthlyCRSP,1986.03M, 2010.12M) 
+
+
+
+def prepareBeta(monthlyCRSP, monthlyFF, monthlyMarket, startTime, endTime) {
+    mergedData = select permno, time_avail_m, ret, rf from monthlyCRSP inner join monthlyFF on monthlyCRSP.time_avail_m  = monthlyFF.time_avail_m 
+    mergedData = select mergedData.*, monthlyMarket.ewretd from mergedData inner join monthlyMarket on mergedData.time_avail_m = monthlyMarket.time_avail_m
+    result = select permno, time_avail_m,Beta(ret,ewretd,rf) as Beta from mergedData where time_avail_m between startTime : endTime
+    return result
+}
+//prepareBeta(monthlyCRSP, monthlyFF, monthlyMarket,1986.03M, 2010.12M) 
+ 
+
+
+def prepareBetaLiquidityPS(monthlyCRSP, monthlyFF, monthlyLiquidity, startTime, endTime) {
+    mergedData = select permno, time_avail_m, ret, rf, mktrf, hml, smb from monthlyCRSP inner join monthlyFF on monthlyCRSP.time_avail_m  = monthlyFF.time_avail_m 
+    mergedData = select * from mergedData left join monthlyLiquidity on mergedData.time_avail_m = monthlyLiquidity.time_avail_m
+    result = select permno, time_avail_m,betaLiquidityPS(ret, ps_innov, rf) as BetaLiquidityPS from mergedData where time_avail_m between startTime : endTime
+    return result
+}
+//prepareBetaLiquidityPS(monthlyCRSP, monthlyFF, monthlyLiquidity,1986.03M, 2010.12M) 
+ 
+
+
+def prepareBookLeverage(m_aCompustat, startTime, endTime){ 
+    result = select permno, time_avail_m,bookLeverage(at, lt, txditc, pstk, pstkrv, pstkl, seq, ceq) as bookleverage from m_aCompustat where time_avail_m between startTime : endTime
+    return result
+}
+//prepareBookLeverage(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareBrandInvest(a_aCompustat, startTime, endTime) {
+    result = select gvkey, time_avail_m, brandInvest(gvkey, time_avail_m, fyear, datadate, xad, at) as BrandInvest from a_aCompustat where time_avail_m between startTime : endTime context by gvkey, fyear limit -1
+    return result
+}
+//prepareBrandInvest(a_aCompustat,1986.03M, 2010.12M) 
+ 
+
+ 
+
+def prepareCF(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData = select gvkey,permno,time_avail_m,ib,dp,mve_c from m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m 
+    result = select permno, time_avail_m,cf(ib, dp, mve_c) as CF from mergedData where time_avail_m between startTime : endTime
+    return result
+}
+//prepareCF(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareCash(m_QCompustat, SignalMasterTable, startTime, endTime) {
+    data = select * from m_QCompustat context by gvkey, rdq having count(*) == 1 
+    data = select * from data where(!isNull(gvkey) && !isNull(atq))
+    data1 = data
+    update data set time_avail_m = time_avail_m+1
+    data2 = data
+    update data set time_avail_m = time_avail_m+1
+    data3 = data
+    expandedData = data1.append!(data2).append!(data3)
+    merged_data = select * from m_QCompustat context by gvkey, time_avail_m having count(*) == 1 order by gvkey, time_avail_m
+    sig = select * from SignalMasterTable where !isNull(gvkey)
+    merged_data = select permno, gvkey, time_avail_m, merged_data.atq, merged_data.cheq, merged_data.rdq from SignalMasterTable inner join merged_data on  SignalMasterTable.gvkey = merged_data.gvkey and SignalMasterTable.time_avail_m  = merged_data.time_avail_m 
+    result = select permno, time_avail_m,cash(cheq, atq) as Cash from merged_data where time_avail_m between startTime : endTime
+    return result
+}
+//prepareCash(m_QCompustat, SignalMasterTable,1986.03M, 2010.12M) 
+ 
+
+
+
+def prepareCashProd(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData = select permno,time_avail_m,at,che,mve_c from m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m 
+    result = select permno, time_avail_m,cashProd(mve_c, at, che) as CashProd from mergedData where time_avail_m between startTime : endTime
+    return result
+}
+//prepareCashProd(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareChAssetTurnover(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,chAssetTurnover(sale, rect, invt, aco, ppent, intan, ap, lco, lo) as ChAssetTurnover from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareChAssetTurnover(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareChEQ(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,chEQ(ceq) as ChEQ from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareChEQ(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareChInv(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,chInv(invt, at) as ChInv from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareChInv(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareChNNCOA(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,chNNCOA(at, act, ivao, lt, dlc, dltt) as ChNNCOA from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareChNNCOA(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareChNWC(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,chNWC(act, che, lct, dlc, at) as ChNWC from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareChNWC(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareChTax(m_aCompustat, m_QCompustat, startTime, endTime){
+    mergedData = select permno, gvkey, time_avail_m, at ,txtq from m_aCompustat inner join m_QCompustat on m_aCompustat.gvkey  = m_QCompustat.gvkey  and  m_aCompustat.time_avail_m  = m_QCompustat.time_avail_m 
+    result = select permno, time_avail_m,chTax(txtq, at) as ChTax from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareChTax(m_aCompustat, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+
+def prepareCompEquIss(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,compEquIss(ret,mve_c) as CompEquIss from SignalMasterTable where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareCompEquIss(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareCompositeDebtIssuance(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,compositeDebtIssuance(dltt, dlc) as CompositeDebtIssuance from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareCompositeDebtIssuance(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareDelCOA(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,delCOA(at, act, che) as DelCOA from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareDelCOA(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareDelCOL(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,delCOL(at, lct, dlc) as DelCOL from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareDelCOL(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareDelDRC(m_aCompustat, startTime, endTime){
+    data = select sic$INT as sic, gvkey, permno, time_avail_m, drc, at, ceq, sale from m_aCompustat
+    result = select permno, time_avail_m,delDRC(drc, at, ceq, sale, sic) as DelDRC from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareDelDRC(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareDelEqu(m_aCompustat, startTime, endTime){
+    result = select  permno, time_avail_m,delEqu(at, ceq) as DelEqu from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareDelEqu(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareDelLTI(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m, delLTI(at, ivao) as DelLTI from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareDelLTI(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareDelNetFin(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m, delNetFin(at, pstk, ivst, ivao, dltt, dlc) as DelNetFin from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareDelNetFin(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareDivInit(CRSPdistributions, SignalMasterTable, startTime, endTime){
+    data = select * from CRSPdistributions where !isNull(time_avail_m) && !isNull(divamt)
+    sum_divamt = exec sum(divamt) from CRSPdistributions context by permno, time_avail_m
+    update data set divamt = sum_divamt
+    merged_data = select permno, time_avail_m, exchcd, shrcd, divamt from SignalMasterTable left join data on SignalMasterTable.permno = data.permno and SignalMasterTable.time_avail_m  = data.time_avail_m 
+    result = select permno, time_avail_m, divInit(time_avail_m,exchcd,shrcd,divamt) as DivInit from merged_data where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareDivInit(CRSPdistributions, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+
+def prepareDivOmit(CRSPdistributions, SignalMasterTable, startTime, endTime){
+    data = select * from CRSPdistributions where !isNull(time_avail_m) && !isNull(divamt)
+    sum_divamt = exec sum(divamt) from CRSPdistributions context by permno, time_avail_m
+    update data set divamt = sum_divamt
+    merged_data = select permno, time_avail_m, exchcd, shrcd, divamt from SignalMasterTable left join data on SignalMasterTable.permno = data.permno and SignalMasterTable.time_avail_m  = data.time_avail_m 
+    result = select permno, time_avail_m, divOmit(time_avail_m,exchcd,shrcd,divamt) as DivOmit from merged_data where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareDivOmit(CRSPdistributions, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareDolVol(monthlyCRSP, startTime, endTime){
+    result = select permno, time_avail_m, dolVol(vol, prc) as DolVol from monthlyCRSP where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareDolVol(monthlyCRSP, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareEP(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData = select gvkey, permno, time_avail_m, ib, mve_c from m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m 
+    result = select permno, time_avail_m,ep(ib, mve_c) as EP from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareEP(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+
+
+
+
+def prepareEarnSupBig(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, m_QCompustat.epspxq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m
+    merged_data = select *, epspxq - move(merged_data.epspxq,12) as GrTemp from merged_data context by permno
+    for (n in 1:9) {
+        str = "temp" + string(3*n)
+        merged_data = select *, move(merged_data.GrTemp,3*n) as cg from merged_data context by permno
+        rename!(merged_data,`cg,str)
+    }
+    merged_data =  select *, rowAvg(temp3,temp6,temp9,temp12,temp15,temp18,temp21,temp24) as Drift from merged_data
+    merged_data = select *, epspxq - move(merged_data.epspxq,12) - Drift as EarningsSurprise from merged_data context by permno
+    for (n in 1:9) {
+        dropColumns!(merged_data, "temp" + string(3*n))
+    }
+    for (n in 1:9) {
+        str = "temp" + string(3*n)
+        merged_data = select *, move(merged_data.EarningsSurprise,3*n) as cg from merged_data context by permno
+        rename!(merged_data,`cg,str)
+    }
+    merged_data =  select *, rowStd(temp3,temp6,temp9,temp12,temp15,temp18,temp21,temp24) as SD  from merged_data
+    update merged_data set EarningsSurprise = EarningsSurprise/SD
+    data = select * from SignalMasterTable left join merged_data on SignalMasterTable.permno = merged_data.permno and SignalMasterTable.time_avail_m  = merged_data.time_avail_m 
+    data = select *, rank(mve_c)\count(*) as tempRK from data context by time_avail_m
+    data = select * from data where tempRK >= 0.7 && !isNull(tempRK)
+    result = select permno, time_avail_m,earnSupBig(permno, time_avail_m, mve_c, EarningsSurprise) as EarnSupBig from data where time_avail_m between startTime : endTime 
+    return result
+}
+//prepareEarnSupBig(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+
+
+
+
+def prepareEarningsConsistency(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,earningsConsistency(epspx) as EarningsConsistency from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareEarningsConsistency(m_aCompustat, 1986.03M, 2010.12M)
+
+
+
+
+def prepareEarningsSurprise(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, m_QCompustat.epspxq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m
+    result = select permno, time_avail_m,earningsSurprise(permno, gvkey, time_avail_m, epspxq) as EarningsSurprise from merged_data
+    return result
+}
+//prepareEarningsSurprise(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+
+
+
+
+def prepareEquityDuration(a_aCompustat, startTime, endTime){
+    result = select gvkey, time_avail_m,equityDuration(gvkey, time_avail_m, fyear, datadate, ceq, ib, sale, prcc_f, csho) as EquityDuration from a_aCompustat
+    return result
+}
+//prepareEquityDuration(a_aCompustat, 1986.03M, 2010.12M)
+
+
+
+
+def prepareExchSwitch(SignalMasterTable, startTime, endTime){
+    result = select gvkey, time_avail_m, exchSwitch(exchcd) as EntMult from SignalMasterTable where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareExchSwitch(SignalMasterTable, 1986.03M, 2010.12M)
+
+
+
+def prepareFirmAge(SignalMasterTable, startTime, endTime){
+    result = select gvkey, time_avail_m,firmAge(gvkey, permno, time_avail_m, exchcd) as FirmAge from SignalMasterTable where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareFirmAge(SignalMasterTable, 1986.03M, 2010.12M)
+   
+
+
+def prepareFirmAgeMom(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,firmAgeMom(permno, time_avail_m, ret, prc) as FirmAgeMom from SignalMasterTable where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareFirmAgeMom(SignalMasterTable, 1986.03M, 2010.12M)
+   
+
+ 
+
+
+def prepareGP(m_aCompustat, startTime, endTime){
+    data = select gvkey, permno, time_avail_m, revt, cogs, at, sic$INT, datadate from m_aCompustat where  sic$INT < 6000 or  sic$INT >= 7000
+    result = select permno, time_avail_m,gp(revt, cogs, at) as GP from data where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareGP(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareGrLTNOA(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,grLTNOA(rect, invt, ppent, aco, intan, ao, ap, lco, lo, at, dp) as GrLTNOA from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareGrLTNOA(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareGrSaleToGrInv(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,grSaleToGrInv(sale, invt) as GrSaleToGrInv from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareGrSaleToGrInv(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareGrSaleToGrOverhead(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m, grSaleToGrOverhead(sale, xsga) as GrSaleToGrOverhead from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareGrSaleToGrOverhead(m_aCompustat, 1986.03M, 2010.12M)
+  
+
+
+
+
+def prepareIntMom(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,intMom(ret) as IntMom from SignalMasterTable where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareIntMom(SignalMasterTable, 1986.03M, 2010.12M)
+
+
+
+
+def prepareInvestPPEInv(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,investPPEInv(at, ppegt, invt) as InvestPPEInv from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareInvestPPEInv(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareInvestment(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,investment(permno, revt, capx) as Investment from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareInvestment(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareLRreversal(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,lRreversal(ret) as LRreversal from SignalMasterTable where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareLRreversal(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareLeverage(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData = select gvkey, permno, time_avail_m, lt, mve_c from m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m 
+    result = select permno, time_avail_m,leverage(lt, mve_c) as Leverage from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareLeverage(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareMRreversal(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,mRreversal(ret) as LRreversal from SignalMasterTable where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareMRreversal(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareMeanRankRevGrowth(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,meanRankRevGrowth(permno, time_avail_m, revt) as MeanRankRevGrowth from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareMeanRankRevGrowth(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareMom12m(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,mom12m(ret) as Mom12m from SignalMasterTable where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareMom12m(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+def prepareMom12mOffSeason(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,mom12mOffSeason(time_avail_m, permno, ret) as Mom12mOffSeason from SignalMasterTable where time_avail_m between startTime : endTime 
+    return result
+}
+//prepareMom12mOffSeason(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+def prepareMom6m(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,mom6m(ret) as Mom6m from SignalMasterTable where time_avail_m between startTime : endTime 
+    return result
+}
+//prepareMom6m(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareMomOffSeason(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,momOffSeason(ret, permno) as MomOffSeason from SignalMasterTable where time_avail_m between startTime : endTime 
+    return result
+}
+//prepareMomOffSeason(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareMomOffSeason06YrPlus(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,momOffSeason06YrPlus(ret, permno) as MomOffSeason06YrPlus from SignalMasterTable where time_avail_m between startTime : endTime 
+    return result
+}
+//prepareMomOffSeason06YrPlus(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareMomOffSeason11YrPlus(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,momOffSeason11YrPlus(ret, permno) as MomOffSeason11YrPlus from SignalMasterTable where time_avail_m between startTime : endTime 
+    return result
+}
+//prepareMomOffSeason11YrPlus(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+def prepareMomOffSeason16YrPlus(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,momOffSeason16YrPlus(ret, permno) as MomOffSeason16YrPlus from SignalMasterTable where time_avail_m between startTime : endTime 
+    return result
+}
+//prepareMomOffSeason16YrPlus(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareMomRev(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,momRev(ret, time_avail_m, permno) as MomRev from SignalMasterTable where time_avail_m between startTime : endTime 
+    return result
+}
+//prepareMomRev(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareMomSeason(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,momSeason(ret, permno) as MomSeason from SignalMasterTable where time_avail_m between startTime : endTime 
+    return result
+}
+//prepareMomSeason(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+def prepareMomSeason06YrPlus(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,momSeason06YrPlus(ret, permno) as MomSeason06YrPlus from SignalMasterTable where time_avail_m between startTime : endTime 
+    return result
+}
+//prepareMomSeason06YrPlus(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+def prepareMomSeason11YrPlus(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,momSeason11YrPlus(ret, permno) as MomSeason11YrPlus from SignalMasterTable where time_avail_m between startTime : endTime 
+    return result
+}
+//prepareMomSeason11YrPlus(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareMomSeason16YrPlus(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,momSeason16YrPlus(ret, permno) as MomSeason16YrPlus from SignalMasterTable where time_avail_m between startTime : endTime 
+    return result
+}
+//prepareMomSeason16YrPlus(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+def prepareMomSeasonShort(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,momSeasonShort(ret) as MomSeasonShort from SignalMasterTable where time_avail_m between startTime : endTime 
+    return result
+}
+//prepareMomSeasonShort(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareMomVol(SignalMasterTable, monthlyCRSP, startTime, endTime){
+    merged_data = select permno, time_avail_m, ret, vol from SignalMasterTable inner join monthlyCRSP on SignalMasterTable.permno = monthlyCRSP.permno and SignalMasterTable.time_avail_m = monthlyCRSP.time_avail_m
+    result = select permno, time_avail_m,momVol(vol, ret, time_avail_m,permno) as MomVol from merged_data where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareMomVol(SignalMasterTable, monthlyCRSP, 1986.03M, 2010.12M)
+ 
+
+
+def prepareNetDebtFinance(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,netDebtFinance(dlcch, dltis, dltr, at) as NetDebtFinance from m_aCompustat where time_avail_m between startTime : endTime 
+    return result
+}
+//prepareNetDebtFinance(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareNetDebtPrice(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData = select permno, time_avail_m, at, dltt, dlc, pstk, dvpa, tstkp, che, sic, ib, csho, ceq, prcc_f, mve_c from m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m 
+    result = select permno, time_avail_m,netDebtPrice(dltt, dlc, pstk, dvpa, tstkp, che, mve_c, at, ib, csho, ceq, prcc_f, time_avail_m) as NetDebtPrice from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareNetDebtPrice(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+def prepareNetEquityFinance(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,netEquityFinance(sstk, prstkc, at) as NetEquityFinance from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareNetEquityFinance(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareNetPayoutYield(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData = select permno, time_avail_m, dvc, prstkc, sstk, sic, ceq, mve_c from m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m 
+    result = select permno, time_avail_m,netPayoutYield(dvc, prstkc, sstk, mve_c, sic, ceq) as NetPayoutYield from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareNetPayoutYield(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+def prepareNumEarnIncrease(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, m_QCompustat.ibq from data1 inner join m_QCompustat on m_QCompustat.gvkey = data1.gvkey and m_QCompustat.time_avail_m = data1.time_avail_m
+    result = select permno, time_avail_m,numEarnIncrease(ibq) as NumEarnIncrease from merged_data where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareNumEarnIncrease(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareOPLeverage(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,opLeverage(xsga, cogs, at) as OPLeverage from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareOPLeverage(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareOperProf(m_aCompustat, SignalMasterTable, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable
+    data1 = select * from data1 where gvkey is not null
+    mergedData =  select permno, gvkey, time_avail_m, mve_c, revt, cogs, xsga, xint, ceq from  data1 inner join m_aCompustat on m_aCompustat.permno = data1.permno and  m_aCompustat.time_avail_m  = data1.time_avail_m 
+    result = select permno, time_avail_m,operProf(revt, cogs, xsga, xint, ceq, mve_c, time_avail_m) as OperProf from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareOperProf(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+ 
+
+
+
+def prepareOrderBacklog(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,orderBacklog(at, ob) as OrderBacklog from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareOrderBacklog(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareOrderBacklogChg(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,orderBacklogChg(at, ob) as OrderBacklogChg from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareOrderBacklogChg(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def preparePS(m_aCompustat, SignalMasterTable, monthlyCRSP, startTime, endTime){
+    data1 = select permno, time_avail_m, fopt, oancf, ib, at, dltt, act, lct, txt, xint, sale, ceq, mve_c from m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and m_aCompustat.time_avail_m = SignalMasterTable.time_avail_m
+    merged_data = select data1.*, monthlyCRSP.shrout from data1 inner join monthlyCRSP on data1.permno = monthlyCRSP.permno and data1.time_avail_m = monthlyCRSP.time_avail_m
+    result = select permno, time_avail_m,ps(time_avail_m, mve_c, sale, at, dltt, act, lct, txt, xint, ib, ceq, shrout, oancf, fopt) as PS from merged_data where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparePS(m_aCompustat, SignalMasterTable, monthlyCRSP, 1986.03M, 2010.12M)
+ 
+
+
+def preparePayoutYield(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData =  select permno, time_avail_m, dvc, prstkc, pstkrv, sstk, sic, ceq, datadate, mve_c from  m_aCompustat inner join SignalMasterTable on SignalMasterTable.permno = m_aCompustat.permno and  SignalMasterTable.time_avail_m  = m_aCompustat.time_avail_m 
+    result = select permno, time_avail_m,payoutYield(dvc, prstkc, pstkrv, mve_c) as PayoutYield from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparePayoutYield(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+def preparePctAcc(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,pctAcc(ib, oancf, act, che, lct, dlc, txp, dp) as PctAcc from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparePctAcc(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def preparePctTotAcc(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,pctTotAcc(ni, prstkcc, sstk, dvt, oancf, fincf, ivncf) as PctTotAcc from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparePctTotAcc(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparePrice(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,price(prc) as Price from SignalMasterTable where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparePrice(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+def prepareRD(m_aCompustat, SignalMasterTable, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable
+    data1 = select * from data1 where gvkey is not null
+    mergedData =  select permno, gvkey, time_avail_m, mve_c, xrd from  data1 inner join m_aCompustat on m_aCompustat.permno = data1.permno and  m_aCompustat.time_avail_m  = data1.time_avail_m 
+    result = select permno, time_avail_m,rd(xrd, mve_c) as RD from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareRD(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+def prepareRDAbility(a_aCompustat, startTime, endTime){
+    result = select gvkey, time_avail_m,rdAbility(xrd, sale, time_avail_m, gvkey) as RDAbility from a_aCompustat where time_avail_m between startTime : endTime
+    return result
+}
+//prepareRDAbility(a_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareRDS(m_aCompustat, CompustatPensions, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, recta, ceq, ni, dvp, dvc, prcc_f, csho, msa from m_aCompustat
+    data1[`year] = year(m_aCompustat.datadate)
+    merged_data = select data1.*, CompustatPensions.pcupsu, CompustatPensions.paddml from data1 left join CompustatPensions on data1.gvkey = CompustatPensions.gvkey and data1.year  = CompustatPensions.year  
+    result = select permno, time_avail_m,rDS(recta, ceq, ni, dvp, dvc, prcc_f, csho, msa, pcupsu, paddml) as RDS from merged_data where time_avail_m between startTime : endTime
+    return result
+}
+//prepareRDS(m_aCompustat, CompustatPensions, 1986.03M, 2010.12M)
+ 
+
+
+def prepareRDcap(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData =  select permno, time_avail_m, at, xrd, mve_c from  m_aCompustat left join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m 
+    result = select permno, time_avail_m,rDcap(time_avail_m, xrd, mve_c, at) as RDcap from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareRDcap(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareRevenueSurprise(m_QCompustat, SignalMasterTable, startTime, endTime){
+    data1 = select gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    mergedData =  select data1.*, m_QCompustat.revtq, m_QCompustat.cshprq from  data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and  data1.time_avail_m  = m_QCompustat.time_avail_m 
+    result = select gvkey, time_avail_m,revenueSurprise(revtq, cshprq, gvkey) as RevenueSurprise from mergedData where time_avail_m between startTime : endTime context by gvkey
+    return result
+}
+//prepareRevenueSurprise(m_QCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareRoE(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m, roe(ni, ceq) as RoE from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareRoE(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareSP(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData =  select permno, time_avail_m, sale, mve_c from  m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m 
+    result = select permno, time_avail_m,sp(sale, mve_c) as SP from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareSP(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareSTreversal(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,sTreversal(ret) as STreversal from SignalMasterTable where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareSTreversal(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareShareIss1Y(monthlyCRSP, SignalMasterTable, startTime, endTime){
+    mergedData =  select permno, time_avail_m, shrout, cfacshr  from SignalMasterTable inner join monthlyCRSP on SignalMasterTable.permno = monthlyCRSP.permno and  SignalMasterTable.time_avail_m  = monthlyCRSP.time_avail_m 
+    result = select permno, time_avail_m,shareIss1Y(shrout, cfacshr) as ShareIss1Y from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareShareIss1Y(monthlyCRSP, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareShareIss5Y(monthlyCRSP, SignalMasterTable, startTime, endTime){ 
+    mergedData =  select permno, time_avail_m, shrout, cfacshr  from SignalMasterTable inner join monthlyCRSP on SignalMasterTable.permno = monthlyCRSP.permno and  SignalMasterTable.time_avail_m  = monthlyCRSP.time_avail_m 
+    result = select permno, time_avail_m,shareIss5Y(shrout, cfacshr) as ShareIss5Y from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareShareIss5Y(monthlyCRSP, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareShareRepurchase(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,shareRepurchase(prstkc) as ShareRepurchase from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareShareRepurchase(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareShareVol(monthlyCRSP, SignalMasterTable, startTime, endTime){ 
+    mergedData =  select permno, time_avail_m, exchcd, shrout, vol from SignalMasterTable inner join monthlyCRSP on SignalMasterTable.permno = monthlyCRSP.permno and  SignalMasterTable.time_avail_m  = monthlyCRSP.time_avail_m 
+    result = select permno, time_avail_m,shareVol(vol, shrout, permno) as ShareVol from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareShareVol(monthlyCRSP, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareSize(SignalMasterTable, startTime, endTime){
+    result = select permno, time_avail_m,Size(mve_c) as Size from SignalMasterTable where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareSize(SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareSurpriseRD(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,surpriseRD(xrd, revt, at) as SurpriseRD from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareSurpriseRD(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareTax(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,tax(time_avail_m, txfo, txfed, txt, txdi, ib) as Tax from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareTax(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareTotalAccruals(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,totalAccruals(ivao, ivst, dlc, pstk, dv, act, che, lct, at, dltt, lt, sstk, ni, oancf, ivncf, fincf, prstkc, time_avail_m) as TotalAccruals from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareTotalAccruals(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareVarCF(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData =  select gvkey, permno, time_avail_m, ib, dp, mve_c from  m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m 
+    result = select permno, time_avail_m,varCF(ib, dp, mve_c, time_avail_m, permno) as VarCF from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareVarCF(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+def prepareVolMkt(monthlyCRSP, startTime, endTime){ 
+    result = select permno, time_avail_m,volMkt(shrout, prc, vol, mve_c, permno) as VolMkt from monthlyCRSP where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareVolMkt(monthlyCRSP, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareVolSD(monthlyCRSP, startTime, endTime){ 
+    result = select permno, time_avail_m,volSD(vol) as VolSD from monthlyCRSP where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareVolSD(monthlyCRSP, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareVolumeTrend(monthlyCRSP, startTime, endTime){ 
+    result = select permno, time_avail_m,volumeTrend(time_avail_m, vol, permno) as VolumeTrend from monthlyCRSP where time_avail_m between startTime : endTime
+    return result
+}
+//prepareVolumeTrend(monthlyCRSP, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareXFIN(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,xFin(sstk, dv, prstkc, dltis, dltr, at) as XFIN from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareXFIN(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareZZ1FRFR(CompustatPensions, SignalMasterTable, m_aCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, shrcd, mve_c from SignalMasterTable where !isNull(gvkey)
+    data1[`year] =  year(data1.time_avail_m)
+    mergedData =  select * from  data1 inner join CompustatPensions on data1.gvkey = CompustatPensions.gvkey and  data1.year  = CompustatPensions.year 
+    mergedData = select mergedData.*, m_aCompustat.at from mergedData left join m_aCompustat on mergedData.gvkey = m_aCompustat.gvkey and  mergedData.time_avail_m  = m_aCompustat.time_avail_m
+    result = select permno, time_avail_m,zz1frfr(time_avail_m, mve_c, at, pbnaa, pplao, pplau, pbnvv, pbpro, pbpru, shrcd, year) as ZZ1_FR_FR from mergedData where time_avail_m between startTime : endTime
+    return result
+}
+//prepareZZ1FRFR(CompustatPensions, SignalMasterTable, m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareZZ1FRFRbook(CompustatPensions, SignalMasterTable, m_aCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, shrcd, mve_c from SignalMasterTable where !isNull(gvkey)
+    data1[`year] =  year(data1.time_avail_m)
+    mergedData =  select * from  data1 inner join CompustatPensions on data1.gvkey = CompustatPensions.gvkey and  data1.year  = CompustatPensions.year 
+    mergedData = select mergedData.*, m_aCompustat.at from mergedData left join m_aCompustat on mergedData.gvkey = m_aCompustat.gvkey and  mergedData.time_avail_m  = m_aCompustat.time_avail_m
+    result = select permno, time_avail_m,zz1frfrBook(time_avail_m, mve_c, at, pbnaa, pplao, pplau, pbnvv, pbpro, pbpru, shrcd, year) as ZZ1_FR_FRbook from mergedData where time_avail_m between startTime : endTime
+    return result
+}
+//prepareZZ1FRFRbook(CompustatPensions, SignalMasterTable, m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareZZ1IntanBM(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData =  select permno, gvkey, time_avail_m, sale, ib, dp, ni, ceq, ret, mve_c from  m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m where time_avail_m between startTime : endTime
+    result = select permno, time_avail_m,zz1IntanBM(permno, time_avail_m, ceq, mve_c, sale, ib, dp, ni, ret) as ZZ1_IntanBM from mergedData
+    return result
+}
+//prepareZZ1IntanBM(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+
+
+def prepareZZ1IntanSP(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData =  select permno, gvkey, time_avail_m, sale, ib, dp, ni, ceq, ret, mve_c from  m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m where time_avail_m between startTime : endTime
+    result = select permno, time_avail_m,zz1IntanSP(permno, time_avail_m, ceq, mve_c, sale, ib, dp, ni, ret) as ZZ1_IntanSP from mergedData
+    return result
+}
+//prepareZZ1IntanSP(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+
+
+def prepareZZ1IntanCFP(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData =  select permno, gvkey, time_avail_m, sale, ib, dp, ni, ceq, ret, mve_c from  m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m where time_avail_m between startTime : endTime
+    result = select permno, time_avail_m,zz1IntanCFP(permno, time_avail_m, ceq, mve_c, sale, ib, dp, ni, ret) as ZZ1_IntanCFP from mergedData
+    return result
+}
+//prepareZZ1IntanCFP(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+
+
+def prepareZZ1IntanEP(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData =  select permno, gvkey, time_avail_m, sale, ib, dp, ni, ceq, ret, mve_c from  m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m where time_avail_m between startTime : endTime
+    result = select permno, time_avail_m,zz1IntanEP(permno, time_avail_m, ceq, mve_c, sale, ib, dp, ni, ret) as ZZ1_IntanEP from mergedData
+    return result
+}
+//prepareZZ1IntanEP(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+
+
+
+def prepareZZ1ResidualMomentum6mResidualMomentum(monthlyCRSP, monthlyFF, startTime, endTime){
+    mergedData = select permno, time_avail_m, ret, rf, mktrf, hml, smb from monthlyCRSP inner join monthlyFF on monthlyCRSP.time_avail_m  = monthlyFF.time_avail_m
+    result = select permno, time_avail_m,zz1ResidualMomentum6mResidualMomentum(permno, time_avail_m, ret, rf, mktrf, hml, smb) as ZZ1_ResidualMomentum6m_ResidualMomentum from mergedData where time_avail_m between startTime : endTime
+    return result
+}
+//prepareZZ1ResidualMomentum6mResidualMomentum(monthlyCRSP, monthlyFF, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareZZ1ResidualMomentum11mResidualMomentum(monthlyCRSP, monthlyFF, startTime, endTime){
+    mergedData = select permno, time_avail_m, ret, rf, mktrf, hml, smb from monthlyCRSP inner join monthlyFF on monthlyCRSP.time_avail_m  = monthlyFF.time_avail_m
+    result = select permno, time_avail_m,zz1ResidualMomentum11mResidualMomentum(permno, time_avail_m, ret, rf, mktrf, hml, smb) as ZZ1_ResidualMomentum11m_ResidualMomentum from mergedData where time_avail_m between startTime : endTime
+    return result
+}
+//prepareZZ1ResidualMomentum11mResidualMomentum(monthlyCRSP, monthlyFF, 1986.03M, 2010.12M)
+ 
+ 
+
+
+
+def prepareZZ2AbnormalAccruals(a_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData =  select gvkey, time_avail_m, fyear, datadate, at, oancf, fopt, act, che, lct, dlc, ib, sale, ppegt, ni, sic, exchcd from  a_aCompustat left join SignalMasterTable on a_aCompustat.gvkey = SignalMasterTable.gvkey and  a_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m where isDuplicated([time_avail_m, gvkey],FIRST)=false;
+    result = select gvkey, time_avail_m,zz2AbnormalAccruals(sic, fyear, act, at, che, dlc, fopt, ib, lct, ni, ppegt, sale, oancf, exchcd) as ZZ2_AbnormalAccruals from mergedData where time_avail_m between startTime : endTime context by gvkey
+    return result
+}
+//prepareZZ2AbnormalAccruals(a_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareZZ2AbnormalAccrualsPercent(a_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData =  select gvkey, time_avail_m, fyear, datadate, at, oancf, fopt, act, che, lct, dlc, ib, sale, ppegt, ni, sic, exchcd from  a_aCompustat left join SignalMasterTable on a_aCompustat.gvkey = SignalMasterTable.gvkey and  a_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m where isDuplicated([time_avail_m, gvkey],FIRST)=false;
+    result = select gvkey, time_avail_m,zz2AbnormalAccrualsPercent(sic, fyear, act, at, che, dlc, fopt, ib, lct, ni, ppegt, sale, oancf, exchcd) as ZZ2_AbnormalAccrualsPercent from mergedData where time_avail_m between startTime : endTime context by gvkey
+    return result
+}
+//prepareZZ2AbnormalAccrualsPercent(a_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparecfp(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData =  select gvkey, permno, time_avail_m, act, che, lct, dlc, txp, dp, ib, oancf, mve_c from  m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m 
+    result = select permno, time_avail_m,cfp(act, che, lct, dlc, txp, dp, ib, oancf, mve_c) as cfp from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparecfp(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+def preparedNoa(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,dNoa(at,che,dltt,dlc,mib,pstk,ceq) as dNoa from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparedNoa(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparedhire(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,hire(emp, time_avail_m) as hire from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparedhire(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareroaq(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, m_QCompustat.atq, m_QCompustat.ibq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m  = m_QCompustat.time_avail_m 
+    result = select permno, time_avail_m,roaq(ibq, atq) as roaq from merged_data
+    return result
+}
+//prepareroaq(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareStdTurn(monthlyCRSP, startTime, endTime){
+    result = select permno, time_avail_m,stdTurn(vol, shrout, prc, time_avail_m) as std_turn from monthlyCRSP
+    return result
+}
+//prepareStdTurn(monthlyCRSP, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparetang(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,tang( time_avail_m, che, rect, invt, ppegt, at) as tang from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparetang(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+//Placebos
+def prepareAMq(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 =  select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where gvkey is not null
+    mergedData = select data1.*, atq from data1 inner join m_QCompustat on data1.gvkey  = m_QCompustat.gvkey and  data1.time_avail_m  = m_QCompustat.time_avail_m 
+    result = select permno, time_avail_m,aMq(atq, mve_c) as AMq from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareAMq(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareAssetGrowth_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 =  select permno, gvkey, time_avail_m from SignalMasterTable where gvkey is not null
+    mergedData = select data1.*, atq from data1 inner join m_QCompustat on data1.gvkey  = m_QCompustat.gvkey and  data1.time_avail_m  = m_QCompustat.time_avail_m 
+    result = select permno, time_avail_m,assetGrowthQ(atq) as AssetGrowth_q from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareAssetGrowth_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareAssetLiquidityBook(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,assetLiquidityBook(che, act, at, gdwl, intan) as AssetLiquidityBook from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareAssetLiquidityBook(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareAssetLiquidityBookQuart(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 =  select permno, gvkey, time_avail_m from SignalMasterTable where gvkey is not null
+    mergedData = select data1.*, gdwlq, intanq, cheq, actq, atq from data1 inner join m_QCompustat on data1.gvkey  = m_QCompustat.gvkey and  data1.time_avail_m  = m_QCompustat.time_avail_m 
+    result = select permno, time_avail_m,assetLiquidityBookQuart(gdwlq, intanq, cheq, actq, atq) as AssetLiquidityBookQuart from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareAssetLiquidityBookQuart(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareAssetLiquidityMarket(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,assetLiquidityMarket(che, act, at, gdwl, intan, prcc_f, csho, ceq) as AssetLiquidityMarket from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareAssetLiquidityMarket(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+
+def prepareAssetLiquidityMarketQuart(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 =  select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where gvkey is not null
+    mergedData = select data1.*, gdwlq, intanq, cheq, actq, prccq, cshoq, atq, ceqq from data1 inner join m_QCompustat on data1.gvkey  = m_QCompustat.gvkey and  data1.time_avail_m  = m_QCompustat.time_avail_m 
+    result = select permno, time_avail_m,assetLiquidityMarketQuart(gdwlq, intanq, cheq, actq, atq, prccq, cshoq, ceqq) as AssetLiquidityMarketQuart from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareAssetLiquidityMarketQuart(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareAssetTurnover(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,assetTurnover(rect, invt, aco, ppent, intan, ap, lco, lo, sale) as AssetTurnover from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareAssetTurnover(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareAssetTurnover_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 =  select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where gvkey is not null
+    mergedData = select data1.*, rectq, invtq, acoq, ppentq, intanq, apq, lcoq, loq, saleq from data1 inner join m_QCompustat on data1.gvkey  = m_QCompustat.gvkey and  data1.time_avail_m  = m_QCompustat.time_avail_m 
+    result = select permno, time_avail_m,assetTurnoverQ(rectq, invtq, acoq, ppentq, intanq, apq, lcoq, loq, saleq) as AssetTurnover_q from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareAssetTurnover_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareBMq(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 =  select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where gvkey is not null
+    mergedData = select data1.*, ceqq from data1 inner join m_QCompustat on data1.gvkey  = m_QCompustat.gvkey and  data1.time_avail_m  = m_QCompustat.time_avail_m 
+    result = select permno, time_avail_m,bMq(ceqq, mve_c) as BMq from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareBMq(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareBetaSquared(monthlyCRSP, monthlyFF, monthlyMarket, startTime, endTime){
+    data1 =  select permno, time_avail_m, ret, rf from monthlyCRSP inner join monthlyFF on monthlyCRSP.time_avail_m = monthlyFF.time_avail_m
+    mergedData = select data1.*, ewretd from data1 inner join monthlyMarket on data1.time_avail_m  = monthlyMarket.time_avail_m 
+    result = select permno, time_avail_m,betaSquared(ret, rf, ewretd) as BetaSquared from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareBetaSquared(monthlyCRSP, monthlyFF, monthlyMarket, 1986.03M, 2010.12M)
+ 
+
+
+def prepareBookLeverageQuarterly(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 =  select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    mergedData = select data1.*, txditcq, seqq, ceqq, pstkq, atq, ltq from data1 inner join m_QCompustat on data1.gvkey  = m_QCompustat.gvkey and data1.time_avail_m  = m_QCompustat.time_avail_m 
+    result = select permno, time_avail_m,bookLeverageQuarterly(txditcq, seqq, ceqq, pstkq, atq, ltq) as BookLeverageQuarterly from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareBookLeverageQuarterly(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareBrandCapital(a_aCompustat, startTime, endTime){
+    result = select gvkey, time_avail_m,brandCapital(fyear,datadate,xad,gvkey) as BrandCapital from a_aCompustat where time_avail_m between startTime : endTime context by gvkey
+    return result
+}
+//prepareBrandCapital(a_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareCBOperProfLagAT_q(SignalMasterTable, m_aCompustat, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c, shrcd from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, m_aCompustat.ceq from data1 left join m_aCompustat on data1.permno = m_aCompustat.permno and data1.time_avail_m = m_aCompustat.time_avail_m 
+    merged_data = select merged_data.*, m_QCompustat.* from merged_data inner join m_QCompustat on merged_data.gvkey  = m_QCompustat.gvkey  and merged_data.time_avail_m = m_QCompustat.time_avail_m 
+    result = select permno, time_avail_m,cbOperProfLagATQ(atq, revtq, cogsq, xsgaq, xrdq, rectq, invtq, drcq, drltq, apq, xaccq, ceq, mve_c, shrcd) as CBOperProfLagAT_q from merged_data
+    return result
+}
+//prepareCBOperProfLagAT_q(SignalMasterTable, m_aCompustat, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareCFq(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, m_QCompustat.ibq, m_QCompustat.dpq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m 
+    result = select permno, time_avail_m,cFq(ibq, dpq, mve_c) as CFq from merged_data
+    return result
+}
+//prepareCFq(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareCapTurnover(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,capTurnover(sale, at) as CapTurnover from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareCapTurnover(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareCapTurnover_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, m_QCompustat.atq, m_QCompustat.saleq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m 
+    result = select permno, time_avail_m,capTurnoverQ(saleq, atq) as CapTurnover_q from merged_data
+    return result
+}
+//prepareCapTurnover_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareChNCOA(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,chNCOA(at, act, ivao) as ChNCOA from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareChNCOA(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareChNCOL(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,chNCOL(lt, dlc, dltt, at) as ChNCOL from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareChNCOL(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareChangeRoA(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, m_QCompustat.atq, m_QCompustat.ibq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m 
+    result = select permno, time_avail_m,changeRoA(atq, ibq) as ChangeRoA from merged_data
+    return result
+}
+//prepareChangeRoA(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareChangeRoE(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, m_QCompustat.ceqq, m_QCompustat.ibq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m 
+    result = select permno, time_avail_m,changeRoE(ibq, ceqq) as ChangeRoE from merged_data
+    return result
+}
+//prepareChangeRoE(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareDelSTI(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,delSTI(at, ivst) as DelSTI from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareDelSTI(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareDivYield(CRSPdistributions, SignalMasterTable, startTime, endTime){
+    data1 = select * from CRSPdistributions where !isNull(time_avail_m) and !isNull(divamt)
+    data1 = select *, sum(divamt) as sum from data1 context by permno, time_avail_m
+    merged_data = select permno, time_avail_m, mve_c, prc, divamt from SignalMasterTable left join data1 on SignalMasterTable.permno = data1.permno and SignalMasterTable.time_avail_m = data1.time_avail_m 
+    result = select permno, time_avail_m,divYield(divamt, prc, time_avail_m, mve_c) as DivYield from merged_data
+    return result
+}
+//prepareDivYield(CRSPdistributions, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+def prepareDivYieldAnn(CRSPdistributions, SignalMasterTable, startTime, endTime){
+    data1 = select * from CRSPdistributions where !isNull(time_avail_m) and !isNull(divamt)
+    data1 = select *, sum(divamt) as sum from data1 context by permno, time_avail_m
+    merged_data = select permno, time_avail_m, mve_c, prc, divamt from SignalMasterTable left join data1 on SignalMasterTable.permno = data1.permno and SignalMasterTable.time_avail_m = data1.time_avail_m 
+    result = select permno, time_avail_m,divYieldAnn(prc, divamt) as DivYieldAnn from merged_data
+    return result
+}
+//prepareDivYieldAnn(CRSPdistributions, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareEBM_q(m_QCompustat, SignalMasterTable, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, cheq, dlttq, dlcq, pstkq, ceqq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m 
+    result = select permno, time_avail_m,eBMQ(mve_c, cheq, dlttq, dlcq, pstkq, ceqq) as EBM_q from merged_data
+    return result
+}
+//prepareEBM_q(m_QCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareEPq(m_QCompustat, SignalMasterTable, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, ibq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m 
+    result = select permno, time_avail_m,ePq(ibq) as EPq from merged_data
+    return result
+}
+//prepareEPq(m_QCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareETR(m_aCompustat, startTime, endTime){
+    m_aCompustat_update = m_aCompustat
+    rename!(m_aCompustat_update, `pi, `pi0)
+    result = select permno, time_avail_m,eTr(am, txt, pi0, epspx, ajex, prcc_f) as ETR from m_aCompustat_update where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareETR(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareEarningsSmoothness(a_aCompustat, startTime, endTime){
+    result = select gvkey, time_avail_m,earningsSmoothness(ib, at, act, lct, che, dlc, dp, gvkey) as EarningsSmoothness from a_aCompustat context by gvkey
+    return result
+}
+//prepareEarningsSmoothness(a_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+
+def prepareEntMult_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, dlttq, dlcq, pstkq, cheq, oibdpq, ceqq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m  
+    result = select permno, time_avail_m,entMultQ(mve_c, dlttq, dlcq, pstkq, cheq, oibdpq, ceqq) as EntMult_q from merged_data context by gvkey
+    return result
+}
+//prepareEntMult_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareGPlag(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,gPlag(sale, cogs, at) as GPlag from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareGPlag(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareGPlag_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, revtq, cogsq, atq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m  
+    result = select permno, time_avail_m,gPlagQ(revtq, cogsq, atq) as GPlag_q from merged_data context by gvkey
+    return result
+}
+//prepareGPlag_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareGrGMToGrSales(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,grGMToGrSales(sale, cogs) as GrGMToGrSales from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareGrGMToGrSales(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareGrSaleToGrReceivables(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,grSaleToGrReceivables(sale, rect) as GrSaleToGrReceivables from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareGrSaleToGrReceivables(m_aCompustat, 1986.03M, 2010.12M)
+
+
+
+def preparecKZ(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData =  select m_aCompustat.*, SignalMasterTable.mve_c from  m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m 
+    result = select permno, time_avail_m, kz(mve_c, ib, dp, at, ceq, txdb, dlc, dltt, seq, dvc, dvp, che) as KZ from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparecKZ(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareKZ_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, txdiq, ibq, dpq, atq, ceqq, dlcq, dlttq, cheq, dvy, ppentq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m  
+    result = select permno, time_avail_m,kZQ(mve_c, txdiq, ibq, dpq, atq, ceqq, dlcq, dlttq, cheq, dvy) as KZ_q from merged_data context by permno
+    return result
+}
+//prepareKZ_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def preparecLaborforceEfficiency(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,laborforceEfficiency(sale, emp) as LaborforceEfficiency from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparecLaborforceEfficiency(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+
+def prepareLeverage_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, ltq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m  
+    result = select gvkey, time_avail_m,leverageQ(ltq, mve_c) as Leverage_q from merged_data context by gvkey
+    return result
+}
+//prepareLeverage_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareNetDebtPrice_q(SignalMasterTable, m_QCompustat, m_aCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, dlttq, dlcq, pstkq, cheq, atq, ibq, ceqq from data1 left join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m  
+    merged_data = select merged_data.*, sic, ceq, csho, prcc_f from merged_data inner join m_aCompustat on merged_data.gvkey = m_aCompustat.gvkey and merged_data.time_avail_m = m_aCompustat.time_avail_m  
+    result = select permno, time_avail_m,netDebtPriceQ(sic, dlttq, dlcq, pstkq, cheq, mve_c, atq, ibq, csho, ceqq, prcc_f,ceq,time_avail_m) as NetDebtPrice_q from merged_data 
+    return result
+}
+//prepareNetDebtPrice_q(SignalMasterTable, m_QCompustat, m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareNetPayoutYield_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, dvpsxq, cshoq, ajexq, prstkcy, pstkq, sstky from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m  
+    result = select permno, time_avail_m,netPayoutYieldQ(mve_c, dvpsxq, cshoq, ajexq, prstkcy, pstkq, sstky) as NetPayoutYield_q from merged_data 
+    return result
+}
+//prepareNetPayoutYield_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareOPLeverage_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, xsgaq, cogsq, atq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m  
+    result = select permno, time_avail_m,opLeverageQ(xsgaq, cogsq, atq) as OPLeverage_q from merged_data 
+    return result
+}
+//prepareOPLeverage_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareOperProfLag(m_aCompustat, SignalMasterTable, startTime, endTime){
+    data1 =  select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where gvkey is not null
+    mergedData = select data1.*, revt, cogs, xsga, xint, ceq from data1 inner join m_aCompustat on m_aCompustat.permno = data1.permno and  m_aCompustat.time_avail_m  = data1.time_avail_m 
+    result = select permno, time_avail_m,operProfLag(revt,cogs,xsga,xint,ceq,time_avail_m) as OperProfLag from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareOperProfLag(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareOperProfLag_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, cogsq, xsgaq, xintq, revtq, seqq, ceqq, pstkq, atq, ltq, txditcq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m  
+    result = select permno, time_avail_m,operProfLagQ(cogsq,xsgaq,xintq,revtq,seqq,ceqq,pstkq,atq,ltq,txditcq) as OperProfLag_q from merged_data 
+    return result
+}
+//prepareOperProfLag_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareOperProfRDLagAT(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,operProfRDLagAT(xrd,revt,cogs,xsga,at) as OperProfRDLagAT from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareOperProfRDLagAT(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareOperProfRDLagAT_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, prc from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, xrdq, revtq, cogsq, xsgaq, atq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m  
+    result = select permno, time_avail_m,operProfRDLagATQ(xrdq, revtq, cogsq, xsgaq, atq) as OperProfRDLagAT_q from merged_data 
+    return result
+}
+//prepareOperProfRDLagAT_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def preparePM_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, niq, revtq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m  
+    result = select permno, time_avail_m,pMQ(niq, revtq) as PM_q from merged_data 
+    return result
+}
+//preparePM_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparePS_q(SignalMasterTable, m_QCompustat, monthlyCRSP, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, fopty, oancfy, ibq, atq, dlttq, actq, lctq, txtq, xintq, saleq, ceqq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m  
+    merged_data = select merged_data.*,monthlyCRSP.shrout from merged_data inner join monthlyCRSP on merged_data.permno = monthlyCRSP.permno and merged_data.time_avail_m = monthlyCRSP.time_avail_m  
+    result = select permno, time_avail_m,pSQ(fopty,oancfy,ibq,atq,dlttq,actq,lctq,txtq,xintq,saleq,ceqq,shrout,mve_c,time_avail_m) as PS_q from merged_data 
+    return result
+}
+//preparePS_q(SignalMasterTable, m_QCompustat, monthlyCRSP, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparePayoutYield_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, dvpsxq, cshoq, ajexq, prstkcy, pstkq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m  
+    result = select permno, time_avail_m,payoutYieldQ(mve_c, dvpsxq, cshoq, ajexq, prstkcy, pstkq) as PayoutYield_q from merged_data context by permno
+    return result
+}
+//preparePayoutYield_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareRD_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, xrdq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m  
+    result = select permno, time_avail_m,rDQ(xrdq, mve_c) as RD_q from merged_data context by permno
+    return result
+}
+//prepareRD_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareRetNOA(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,retNOA(at, ceq, che, ivao, dlc, dltt, mib, pstk, oiadp) as RetNOA from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareRetNOA(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareRetNOA_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, atq, ceqq, cheq, ivaoq, dlcq, dlttq, mibq, pstkq, oiadpq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m  
+    result = select permno, time_avail_m,retNOAQ(atq, ceqq, cheq, ivaoq, dlcq, dlttq, mibq, pstkq, oiadpq) as RetNOA_q from merged_data context by permno
+    return result
+}
+//prepareRetNOA_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareSP_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, saleq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m  
+    result = select permno, time_avail_m,sPQ(saleq, mve_c) as SP_q from merged_data context by permno
+    return result
+}
+//prepareSP_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareTax_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select permno, gvkey, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, piq, niq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m  
+    result = select permno, time_avail_m,taxQ(piq, niq) as Tax_q from merged_data context by permno
+    return result
+}
+//prepareTax_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareZScore(m_aCompustat, SignalMasterTable, startTime, endTime){
+    mergedData = select gvkey, permno, time_avail_m, act, lct, at, lt, re, ni, xint, txt, revt, sic, mve_c from m_aCompustat inner join SignalMasterTable on m_aCompustat.permno = SignalMasterTable.permno and  m_aCompustat.time_avail_m  = SignalMasterTable.time_avail_m 
+    result = select permno, time_avail_m,zScore(act, lct, at, lt, re, ni, xint, txt, revt, mve_c) as ZScore from mergedData where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareZScore(m_aCompustat, SignalMasterTable, 1986.03M, 2010.12M)
+ 
+
+
+def prepareZZ1_EarningsPersistence(a_aCompustat, startTime, endTime){
+    result = select gvkey, time_avail_m,zz1EarningsPersistence(epspx, ajex, time_avail_m, gvkey) as ZZ1_EarningsPersistence from a_aCompustat where time_avail_m between startTime : endTime context by gvkey
+    return result
+}
+//prepareZZ1_EarningsPersistence(a_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareZZ1_EarningsPredictability(a_aCompustat, startTime, endTime){
+    result = select gvkey, time_avail_m,zz1EarningsPredictability(epspx, ajex, time_avail_m, gvkey) as ZZ1_EarningsPredictability from a_aCompustat where time_avail_m between startTime : endTime context by gvkey
+    return result
+}
+//prepareZZ1_EarningsPredictability(a_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareZZ1_EarningsValueRelevance(monthlyCRSP, a_aCompustat, startTime, endTime){
+    data1 = select permno, time_avail_m, ret, prc, shrout from monthlyCRSP
+    update data1 set ret = nullFill(ret, 0)
+    merged_data = select gvkey, datadate, fyear, ib, data1.* from a_aCompustat left join data1 on int(a_aCompustat.lpermno) = data1.permno and a_aCompustat.time_avail_m = data1.time_avail_m
+    result = select permno, time_avail_m,zZ1EarningsValueRelevance(gvkey, permno, ret, prc, shrout, ib, time_avail_m) as ZZ1_EarningsValueRelevance from merged_data where time_avail_m between startTime : endTime
+    return result
+}
+//prepareZZ1_EarningsValueRelevance(monthlyCRSP, a_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareZZ1_EarningsTimeliness(monthlyCRSP, a_aCompustat, startTime, endTime){
+    data1 = select permno, time_avail_m, ret, prc, shrout from monthlyCRSP
+    update data1 set ret = nullFill(ret, 0)
+    merged_data = select gvkey, datadate, fyear, ib, data1.* from a_aCompustat left join data1 on int(a_aCompustat.lpermno) = data1.permno and a_aCompustat.time_avail_m = data1.time_avail_m
+    result = select permno, time_avail_m,zZ1EarningsTimeliness(gvkey, permno, ret, prc, shrout, ib, time_avail_m) as ZZ1_EarningsTimeliness from merged_data where time_avail_m between startTime : endTime
+    return result
+}
+//prepareZZ1_EarningsTimeliness(monthlyCRSP, a_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareZZ1_EarningsConservatism(monthlyCRSP, a_aCompustat, startTime, endTime){
+    data1 = select permno, time_avail_m, ret, prc, shrout from monthlyCRSP
+    update data1 set ret = nullFill(ret, 0)
+    merged_data = select gvkey, datadate, fyear, ib, data1.* from a_aCompustat left join data1 on int(a_aCompustat.lpermno) = data1.permno and a_aCompustat.time_avail_m = data1.time_avail_m
+    result = select permno, time_avail_m,zZ1EarningsConservatism(gvkey, permno, ret, prc, shrout, ib, time_avail_m) as ZZ1_EarningsConservatism from merged_data where time_avail_m between startTime : endTime
+    return result
+}
+//prepareZZ1_EarningsConservatism(monthlyCRSP, a_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareZZ1_PM_ChPM(m_aCompustat, startTime, endTime){
+    permno = m_aCompustat.permno
+    time_avail_m = m_aCompustat.time_avail_m
+    ni = m_aCompustat.ni
+    revt = m_aCompustat.revt
+    result = zz1PMChPM(permno, time_avail_m, ni, revt)
+    return result
+}
+//prepareZZ1_PM_ChPM(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareZZ1_currat_pchcurrat(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,zz1CurratPchcurrat(act, che, rect, invt, lct, ap) as ZZ1_currat_pchcurrat from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareZZ1_currat_pchcurrat(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareZZ2_AccrualQuality(a_aCompustat, startTime, endTime){
+    result = select gvkey, time_avail_m,zz2AccrualQuality(gvkey, act, lct, che, dlc, dp, at, ppegt, sale, ib, fyear) as ZZ2_AccrualQuality from a_aCompustat where time_avail_m between startTime : endTime
+    return result
+}
+//prepareZZ2_AccrualQuality(a_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareZZ2_AccrualQualityJune(a_aCompustat, startTime, endTime){
+    result = select gvkey, time_avail_m,zz2AccrualQualityJune(gvkey, act, lct, che, dlc, dp, at, ppegt, sale, ib, time_avail_m, fyear) as ZZ2_AccrualQualityJune from a_aCompustat where time_avail_m between startTime : endTime
+    return result
+}
+//prepareZZ2_AccrualQualityJune(a_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def preparecashdebt(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,cashDebt(ib, dp, lt) as cashdebt from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparecashdebt(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def preparecfpq(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select gvkey, permno, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, actq, cheq, lctq, dlcq, txpq, dpq, ibq, oancfy from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m
+    result = select permno, time_avail_m,cfpq(mve_c, actq, cheq, lctq, dlcq, txpq, dpq, ibq, oancfy) as cfpq from merged_data where time_avail_m between startTime : endTime
+    return result
+}
+//preparecfpq(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparedepr(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,depr(dp, ppent) as depr from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparedepr(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def preparepchdepr(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,pchDepr(dp, ppent) as pchdepr from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparepchdepr(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparepchgm_pchsale(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,pchgmPchSale(sale, cogs) as pchgm_pchsale from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparepchgm_pchsale(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparepchquick(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,pchQuick(act, invt, lct) as pchquick from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparepchquick(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparepchsaleinv(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,pchSaleInv(sale, invt) as pchsaleinv from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparepchsaleinv(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparequick(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,quick(act, invt, lct) as quick from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparequick(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparerd_sale(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,rdSale(xrd, sale) as rd_sale from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparerd_sale(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparerd_sale_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select gvkey, permno, time_avail_m, prc from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, xrdq, saleq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m
+    result = select permno, time_avail_m,rdSaleQ(xrdq, saleq) as rd_sale_q from merged_data where time_avail_m between startTime : endTime
+    return result
+}
+//preparerd_sale_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def prepareroavol(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select gvkey, permno, time_avail_m from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, ibq, atq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m
+    result = select permno, time_avail_m,roaVol(ibq, atq) as roavol from merged_data where time_avail_m between startTime : endTime
+    return result
+}
+//prepareroavol(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def prepareroic(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,roIc(ebit, nopi, ceq, lt, che) as roic from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//prepareroic(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparesalecash(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,saleCash(sale, che) as salecash from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparesalecash(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparesaleinv(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,saleInv(sale, invt) as saleinv from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparesaleinv(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparesalerec(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,saleRec(sale, rect) as salerec from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparesalerec(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparesecured(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,secured(dm, dltt, dlc) as secured from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparesecured(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+def preparesecuredind(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,securedInd(dm) as securedind from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparesecuredind(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparesgr(m_aCompustat, startTime, endTime){
+    result = select permno, time_avail_m,sgr(sale) as sgr from m_aCompustat where time_avail_m between startTime : endTime context by permno
+    return result
+}
+//preparesgr(m_aCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+
+def preparesgr_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select gvkey, permno, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, saleq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m
+    result = select permno, time_avail_m,sgrQ(saleq) as sgr_q from merged_data where time_avail_m between startTime : endTime
+    return result
+}
+//preparesgr_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 
+
+
+
+def preparetang_q(SignalMasterTable, m_QCompustat, startTime, endTime){
+    data1 = select gvkey, permno, time_avail_m, mve_c from SignalMasterTable where !isNull(gvkey)
+    merged_data = select data1.*, cheq, rectq, invtq, ppegtq, atq from data1 inner join m_QCompustat on data1.gvkey = m_QCompustat.gvkey and data1.time_avail_m = m_QCompustat.time_avail_m
+    result = select permno, time_avail_m,tangQ(cheq, rectq, invtq, ppegtq, atq) as tang_q from merged_data where time_avail_m between startTime : endTime
+    return result
+}
+//preparetang_q(SignalMasterTable, m_QCompustat, 1986.03M, 2010.12M)
+ 

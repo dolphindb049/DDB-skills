@@ -1,0 +1,5 @@
+run("/hdd/hdd9/jrzhang/.github/skills/ficc_instru_maket_modeling/scripts/02_probe_source_db.dos")
+run("/hdd/hdd9/jrzhang/.github/skills/ficc_instru_maket_modeling/scripts/01_create_standard_schema.dos")
+run("/hdd/hdd9/jrzhang/.github/skills/ficc_instru_maket_modeling/scripts/03_build_field_mapping.dos")
+run("/hdd/hdd9/jrzhang/.github/skills/ficc_instru_maket_modeling/scripts/04_transform_to_standard.dos")
+run("/hdd/hdd9/jrzhang/.github/skills/ficc_instru_maket_modeling/scripts/05_quality_check.dos")

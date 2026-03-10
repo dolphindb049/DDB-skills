@@ -1,0 +1,66 @@
+// 03_create_pricing_schema.dos
+// 输入: outputDbPath, outputTablePrefix
+// 输出: 建好 schema + 共享表 pricing_output_schema_report
+
+if(!exists("outputDbPath")) outputDbPath = "dfs://ficc_pricing_pipeline"
+if(!exists("outputTablePrefix")) outputTablePrefix = "pricing"
+
+if(!existsDatabase(outputDbPath)){
+    database(outputDbPath, HASH, [SYMBOL, 97])
+}
+
+def ensureTable(dbPath, tableName, schemaTb, partCol){
+    if(!existsTable(dbPath, tableName)){
+        db = database(dbPath)
+        db.createPartitionedTable(schemaTb, tableName, partCol)
+        return 1
+    }
+    return 0
+}
+
+priceTable = outputTablePrefix + "_price_result"
+riskTable = outputTablePrefix + "_risk_result"
+runTable = outputTablePrefix + "_run_summary"
+validationTable = outputTablePrefix + "_validation_summary"
+failureTable = outputTablePrefix + "_failure_detail"
+
+priceSchema = table(1:0,
+    `pricingDate`profileName`instrumentId`curveName`status`errorMsg`cleanPrice`dirtyPrice`accruedInterest`ytm`npv`dv01`runTime,
+    [DATE,STRING,STRING,STRING,STRING,STRING,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,TIMESTAMP]
+)
+riskSchema = table(1:0,
+    `pricingDate`profileName`instrumentId`duration`modifiedDuration`convexity`discountCurveDelta`discountCurveGamma`checkTime,
+    [DATE,STRING,STRING,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,TIMESTAMP]
+)
+runSchema = table(1:0,
+    `pricingDate`profileName`totalBonds`pricedBonds`failedBonds`successRate`detail`runTime,
+    [DATE,STRING,LONG,LONG,LONG,DOUBLE,STRING,TIMESTAMP]
+)
+validationSchema = table(1:0,
+    `pricingDate`profileName`metric`value`status`detail`checkTime,
+    [DATE,STRING,STRING,DOUBLE,STRING,STRING,TIMESTAMP]
+)
+failureSchema = table(1:0,
+    `pricingDate`profileName`instrumentId`curveName`stage`reason`detail`checkTime,
+    [DATE,STRING,STRING,STRING,STRING,STRING,STRING,TIMESTAMP]
+)
+
+c1 = ensureTable(outputDbPath, priceTable, priceSchema, `instrumentId)
+c2 = ensureTable(outputDbPath, riskTable, riskSchema, `instrumentId)
+c3 = ensureTable(outputDbPath, runTable, runSchema, `profileName)
+c4 = ensureTable(outputDbPath, validationTable, validationSchema, `profileName)
+c5 = ensureTable(outputDbPath, failureTable, failureSchema, `instrumentId)
+
+report = table(
+    [outputDbPath, outputDbPath, outputDbPath, outputDbPath, outputDbPath] as dbPath,
+    [priceTable, riskTable, runTable, validationTable, failureTable] as tableName,
+    [c1, c2, c3, c4, c5] as created,
+    [now(), now(), now(), now(), now()] as checkTime
+)
+
+if(exists("pricing_output_schema_report")){
+    undef("pricing_output_schema_report", SHARED)
+}
+share(report, `pricing_output_schema_report)
+
+select * from pricing_output_schema_report

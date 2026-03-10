@@ -1,0 +1,24 @@
+// 00_run_pipeline.dos
+// 一键执行 5 步标准化流水线
+
+if(!exists("pricingDate")) pricingDate = 2026.03.04
+if(!exists("outputDbPath")) outputDbPath = "dfs://ficc_pricing_pipeline"
+if(!exists("outputTablePrefix")) outputTablePrefix = "pricing"
+if(!exists("isStreaming")) isStreaming = false
+if(!exists("maxBondsPerProfile")) maxBondsPerProfile = 200
+run("/hdd/hdd9/jrzhang/.github/skills/ficc_pricing/scripts/01_pricing_data_readiness.dos")
+run("/hdd/hdd9/jrzhang/.github/skills/ficc_pricing/scripts/02_curve_dependency_check.dos")
+run("/hdd/hdd9/jrzhang/.github/skills/ficc_pricing/scripts/03_create_pricing_schema.dos")
+run("/hdd/hdd9/jrzhang/.github/skills/ficc_pricing/scripts/04_run_pricing_engine.dos")
+run("/hdd/hdd9/jrzhang/.github/skills/ficc_pricing/scripts/05_validate_pricing_results.dos")
+
+summary = dict(STRING, ANY)
+summary["pricingDate"] = pricingDate
+summary["outputDbPath"] = outputDbPath
+summary["outputTablePrefix"] = outputTablePrefix
+summary["readinessReport"] = "pricing_data_readiness_report"
+summary["curveReport"] = "pricing_curve_dependency_report"
+summary["engineReport"] = "pricing_engine_run_report"
+summary["validationReport"] = "pricing_validation_report"
+print(summary)
+summary

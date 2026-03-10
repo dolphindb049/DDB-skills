@@ -1,13 +1,91 @@
-// 00_cleanup_shared_objects.dos
-// 目标：删除历史共享内存对象，确保后续流程不依赖 shared table
-
-sharedNames = [`pricingBondDesc, `pricingInstrumentStore, `pricingResult, `pricingMarketCurve, `pricingMarketQuote]
-
-for(n in sharedNames){
-    if(exists(string(n))){
-        undef(n, SHARED)
-    }
+// 以2025年8月18日的国债收益率曲线构建为例
+bond1 = {
+    "productType": "Cash",
+    "assetType": "Bond",
+    "bondType": "DiscountBond",
+    "instrumentId": "259916.IB",
+    "start": 2025.03.13,
+    "maturity": 2025.09.11,
+    "issuePrice":  99.2070,
+    "dayCountConvention": "ActualActualISDA"
+}
+bond2 = {
+    "productType": "Cash",
+    "assetType": "Bond",
+    "bondType": "FixedRateBond",
+    "instrumentId": "240021.IB",
+    "start": 2024.10.25,
+    "maturity": 2025.10.25,
+    "coupon": 0.0133,
+    "frequency": "Annual",
+    "dayCountConvention": "ActualActualISDA"
+}
+bond3 = {
+    "productType": "Cash",
+    "assetType": "Bond",
+    "bondType": "FixedRateBond",
+    "instrumentId": "250001.IB",
+    "start": 2025.01.15,
+    "maturity": 2026.01.15,
+    "coupon": 0.0116,
+    "frequency": "Annual",
+    "dayCountConvention": "ActualActualISDA"
+}
+bond4 = {
+    "productType": "Cash",
+    "assetType": "Bond",
+    "bondType": "FixedRateBond",
+    "instrumentId": "250013.IB",
+    "start": 2025.07.25,
+    "maturity": 2026.07.25,
+    "coupon": 0.0133,
+    "frequency": "Annual",
+    "dayCountConvention": "ActualActualISDA"
+}
+bond5 = {
+    "productType": "Cash",
+    "assetType": "Bond",
+    "bondType": "FixedRateBond",
+    "instrumentId": "250012.IB",
+    "start": 2025.06.15,
+    "maturity": 2027.06.15,
+    "coupon": 0.0138,
+    "frequency": "Annual",
+    "dayCountConvention": "ActualActualISDA"
+}
+bond6 = {
+    "productType": "Cash",
+    "assetType": "Bond",
+    "bondType": "FixedRateBond",
+    "instrumentId": "250010.IB",
+    "start": 2025.05.25,
+    "maturity": 2028.05.25,
+    "coupon": 0.0146,
+    "frequency": "Annual",
+    "dayCountConvention": "ActualActualISDA"
 }
 
-print("Shared objects cleaned.")
-"DONE"
+referenceDate = 2025.08.18
+bondsTmp = [bond1, bond2, bond3, bond4, bond5, bond6]
+bonds = parseInstrument(bondsTmp)
+/*
+此案例对标的是外汇交易中心，使用标准期限，各个样本券的剩余期限(term)和报价(quote)都是虚拟出来的
+https://www.chinamoney.com.cn/chinese/bkcurvclosedyhis/index.html
+*/
+terms = [1M, 3M, 6M, 1y, 2y, 3y]
+quotes=[1.3000, 1.3700, 1.3898, 1.3865, 1.4296, 1.4466]/100
+       
+// method = "BoostStarp"
+bootstrapCurve = bondYieldCurveBuilder(referenceDate, `CNY, bonds, terms, quotes, "ActualActualISDA", method='Bootstrap')
+bootstrapCurveDict = extractMktData(bootstrapCurve)
+print(bootstrapCurveDict)
+
+// method = "NS"
+nsCurve = bondYieldCurveBuilder(referenceDate, `CNY, bonds, terms, quotes, "ActualActualISDA", method='NS')
+nsCurveDict = extractMktData(nsCurve)
+print(nsCurveDict)
+
+// method = "NSS"
+nssCurve = bondYieldCurveBuilder(referenceDate, `CNY, bonds, terms, quotes, "ActualActualISDA", method='NSS')
+nssCurveDict=extractMktData(nssCurve)
+print(nssCurveDict)
