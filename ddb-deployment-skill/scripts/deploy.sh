@@ -1,6 +1,6 @@
 #!/bin/bash
 # scripts/deploy.sh
-# 单节点部署（共享服务器安全版）
+# 单节点部署（共享服务器安全版，single mode only）
 # 规则：先改 cfg(localSite) -> 再改二进制名 -> 再改 startSingle/stopSingle
 #
 # 用法：

@@ -1,0 +1,71 @@
+/*
+* @brief Create DFS database and table for Tushare 1-minute stock bars.
+* @server 3.00.5+
+*/
+
+def createMinuteDB(){
+    dbName = "dfs://minute_factor"
+    if(!existsDatabase(dbName)){
+        dbDate = database("", RANGE, date(datetimeAdd(2020.01M, 0..20*12, 'M')))
+        dbSymbol = database("", HASH, [SYMBOL, 20])
+        db = database(dbName, COMPO, [dbDate, dbSymbol], engine="TSDB")
+    }
+    else{
+        db = database(dbName)
+    }
+    return db
+}
+
+def createStockMinute1m(){
+    dbName = "dfs://minute_factor"
+    tbName = "stock_minute_1m"
+    db = createMinuteDB()
+
+    if(existsTable(dbName, tbName)){
+        return loadTable(dbName, tbName)
+    }
+
+    schemaTB = table(
+        array(SYMBOL, 0) as ts_code,
+        array(DATE, 0) as trade_date,
+        array(TIMESTAMP, 0) as trade_time,
+        array(DOUBLE, 0) as open,
+        array(DOUBLE, 0) as high,
+        array(DOUBLE, 0) as low,
+        array(DOUBLE, 0) as close,
+        array(DOUBLE, 0) as vol,
+        array(DOUBLE, 0) as amount,
+        array(DOUBLE, 0) as pre_close,
+        array(DOUBLE, 0) as change,
+        array(DOUBLE, 0) as pct_chg,
+        array(TIMESTAMP, 0) as update_time
+    )
+
+    db.createPartitionedTable(
+        table=schemaTB,
+        tableName=tbName,
+        partitionColumns=`trade_date`ts_code,
+        compressMethods={trade_time:"delta"},
+        sortColumns=`ts_code`trade_time,
+        keepDuplicates=LAST
+    )
+    go
+
+    columnComments = dict(STRING, STRING)
+    columnComments["ts_code"] = "TS股票代码"
+    columnComments["trade_date"] = "交易日期"
+    columnComments["trade_time"] = "分钟时间戳"
+    columnComments["open"] = "开盘价"
+    columnComments["high"] = "最高价"
+    columnComments["low"] = "最低价"
+    columnComments["close"] = "收盘价"
+    columnComments["vol"] = "成交量"
+    columnComments["amount"] = "成交额"
+    columnComments["pre_close"] = "前一分钟收盘价"
+    columnComments["change"] = "涨跌额"
+    columnComments["pct_chg"] = "涨跌幅(%)"
+    columnComments["update_time"] = "写入时间"
+    setColumnComment(loadTable(dbName, tbName), columnComments)
+
+    return loadTable(dbName, tbName)
+}
