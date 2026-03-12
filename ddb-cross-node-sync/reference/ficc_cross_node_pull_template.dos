@@ -1,12 +1,13 @@
 // 跨节点拉取 FICC 原始表模板（xdb + remoteRun）
 // 目的：把源节点原始表落到本地节点，供后续 mapping skill 使用
+// 运行前请先替换下面的连接占位符，不要把真实账号密码直接提交到仓库。
 
-login(`admin, `123456)
+// login("YOUR_LOCAL_USER", "YOUR_LOCAL_PASSWORD")
 
-SRC_HOST = "192.168.100.43"
-SRC_PORT = 8671
-SRC_USER = "admin"
-SRC_PWD  = "123456"
+SRC_HOST = "<SRC_HOST>"
+SRC_PORT = 0
+SRC_USER = "<SRC_USER>"
+SRC_PWD  = "<SRC_PASSWORD>"
 SRC_DB   = "dfs://instrument_dbtest2"
 
 LOCAL_DB = "dfs://instrument_dbtest2"

@@ -76,7 +76,7 @@ metadata:
 - `API_TIMEOUT`（可选，单次 API 超时秒数）
 - `API_RETRIES`（可选，单次 API 失败重试次数）
 - `API_MAX_PAGES`（可选，分页拉取页数上限；`0` 表示不限）
-- `OUT_DIR`（默认 `/hdd/hdd9/jrzhang/data/ficc_api_2026`）
+- `OUT_DIR`（默认 `.github/skills/ficc_download_data/output`）
 
 ## 验收标准
 

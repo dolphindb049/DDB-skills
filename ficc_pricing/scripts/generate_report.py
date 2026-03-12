@@ -4,6 +4,7 @@
 # ///
 
 import argparse
+import os
 import dolphindb as ddb
 import pandas as pd
 
@@ -12,10 +13,13 @@ def main():
     parser = argparse.ArgumentParser(description="Generate concise report from shared tables")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7731)
-    parser.add_argument("--user", default="admin")
-    parser.add_argument("--password", default="123456")
+    parser.add_argument("--user", default=os.getenv("DDB_USER"))
+    parser.add_argument("--password", default=os.getenv("DDB_PASSWORD"))
     parser.add_argument("--pricing-date", default="2026.03.04")
     args = parser.parse_args()
+
+    if not args.user or not args.password:
+        raise SystemExit("Missing DolphinDB credentials. Set --user/--password or DDB_USER/DDB_PASSWORD.")
 
     s = ddb.session()
     s.connect(args.host, args.port, args.user, args.password)

@@ -2,7 +2,7 @@ rawDbPath = "dfs://ficc_api_pdf_2026"
 curveRawDbPath = "dfs://ficc_curve_raw_2026"
 instDbPath = "dfs://instrument_std"
 mdDbPath = "dfs://marketdata_std"
-expectedEndpoint = "http://192.168.100.43:7731/"
+expectedEndpoint = "<DDB_ENDPOINT>"
 
 
 def failOnMissing(path, why){

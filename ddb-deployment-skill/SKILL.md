@@ -32,8 +32,8 @@ metadata:
 export DDB_VERSION="3.00.4"
 export DDB_TAG="3004_FICC"            # 版本号+用途（建议）
 export DDB_PORT=8848
-export LOCAL_IP="192.168.1.5"         # 必须按用户真实要求填写
-export INSTALL_DIR="/hdd/hdd9/jrzhang/deploy_test/$DDB_TAG"
+export LOCAL_IP="<SERVER_IP>"         # 必须按用户真实要求填写
+export INSTALL_DIR="$HOME/ddb_deploy/$DDB_TAG"
 
 # 生成名称
 export ZIP_NAME="${DDB_TAG}.zip"

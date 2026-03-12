@@ -6,7 +6,7 @@
 # 用法：
 # ./deploy.sh <VERSION> <BIN_TAG> <LOCAL_IP> <PORT> <INSTALL_DIR>
 # 示例：
-# ./deploy.sh 3.00.4 3004_FICC 192.168.1.5 8848 /data/ddb/3004_FICC
+# ./deploy.sh 3.00.4 3004_FICC <SERVER_IP> 8848 /data/ddb/3004_FICC
 
 set -euo pipefail
 

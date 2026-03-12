@@ -5,7 +5,7 @@
 # ./patch_single_scripts.sh <SERVER_DIR> <BIN_TAG> <LOCAL_IP> <PORT>
 # 说明：<SERVER_DIR> 传实际程序目录，支持 /data/node1/server 或 /data/node1/server/server
 # 示例：
-# ./patch_single_scripts.sh /data/node1/server 3004_FICC 192.168.1.5 8848
+# ./patch_single_scripts.sh /data/node1/server 3004_FICC <SERVER_IP> 8848
 
 set -euo pipefail
 

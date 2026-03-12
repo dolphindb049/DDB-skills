@@ -6,11 +6,11 @@ if(!exists("outputDbPath")) outputDbPath = "dfs://ficc_pricing_pipeline"
 if(!exists("outputTablePrefix")) outputTablePrefix = "pricing"
 if(!exists("isStreaming")) isStreaming = false
 if(!exists("maxBondsPerProfile")) maxBondsPerProfile = 200
-run("/hdd/hdd9/jrzhang/.github/skills/ficc_pricing/scripts/01_pricing_data_readiness.dos")
-run("/hdd/hdd9/jrzhang/.github/skills/ficc_pricing/scripts/02_curve_dependency_check.dos")
-run("/hdd/hdd9/jrzhang/.github/skills/ficc_pricing/scripts/03_create_pricing_schema.dos")
-run("/hdd/hdd9/jrzhang/.github/skills/ficc_pricing/scripts/04_run_pricing_engine.dos")
-run("/hdd/hdd9/jrzhang/.github/skills/ficc_pricing/scripts/05_validate_pricing_results.dos")
+run("scripts/01_pricing_data_readiness.dos")
+run("scripts/02_curve_dependency_check.dos")
+run("scripts/03_create_pricing_schema.dos")
+run("scripts/04_run_pricing_engine.dos")
+run("scripts/05_validate_pricing_results.dos")
 
 summary = dict(STRING, ANY)
 summary["pricingDate"] = pricingDate

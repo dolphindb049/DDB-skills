@@ -1,7 +1,22 @@
+import os
+
 import dolphindb as ddb
 
+
+def require_env(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise SystemExit(f"Missing required env var: {name}")
+    return value
+
+
 s = ddb.session()
-s.connect('192.168.100.43', 7731, 'admin', '123456')
+s.connect(
+    require_env("DDB_HOST"),
+    int(require_env("DDB_PORT")),
+    require_env("DDB_USER"),
+    require_env("DDB_PASSWORD"),
+)
 
 test_script = """
 try {

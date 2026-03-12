@@ -44,7 +44,7 @@ cd server/server
 先改配置，再改二进制名。
 
 ```bash
-export LOCAL_IP="192.168.1.5"
+export LOCAL_IP="<SERVER_IP>"
 export DDB_PORT=8848
 
 cp -n dolphindb.cfg "dolphindb.cfg.bak.$(date +%Y%m%d%H%M%S)"

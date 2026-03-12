@@ -25,14 +25,22 @@ if os.path.exists(dotenv_path):
 HOST = '127.0.0.1'
 PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
 
+
+def require_setting(value, name):
+    text = str(value or "").strip()
+    if not text:
+        raise SystemExit(f"Missing required setting: {name}")
+    return text
+
+
 def load_ddb_config(args):
-    if args.host and args.port:
-        return args.host, int(args.port), args.user, args.password
-        
-    ddb_host = os.getenv("DDB_HOST", "192.168.100.43")
-    ddb_port = int(os.getenv("DDB_PORT", 7739))
-    ddb_user = os.getenv("DDB_USER", "admin")
-    ddb_pass = os.getenv("DDB_PASSWORD") or os.getenv("DDB_PASS", "123456")
+    ddb_host = require_setting(args.host or os.getenv("DDB_HOST"), "DDB_HOST")
+    ddb_port = int(require_setting(args.port or os.getenv("DDB_PORT"), "DDB_PORT"))
+    ddb_user = require_setting(args.user or os.getenv("DDB_USER"), "DDB_USER")
+    ddb_pass = require_setting(
+        args.password or os.getenv("DDB_PASSWORD") or os.getenv("DDB_PASS"),
+        "DDB_PASSWORD",
+    )
     return ddb_host, ddb_port, ddb_user, ddb_pass
 
 def start_server(args):
@@ -95,8 +103,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DolphinDB Persistent Server")
     parser.add_argument("--host", help="DolphinDB host address")
     parser.add_argument("--port", help="DolphinDB port")
-    parser.add_argument("--user", default="admin", help="DolphinDB username")
-    parser.add_argument("--password", default="123456", help="DolphinDB password")
+    parser.add_argument("--user", help="DolphinDB username")
+    parser.add_argument("--password", help="DolphinDB password")
     args = parser.parse_args()
     
     start_server(args)

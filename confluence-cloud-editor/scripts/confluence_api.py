@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import argparse
 import base64
+import html
 import json
+import mimetypes
 import os
 import re
 import subprocess
@@ -9,6 +11,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -77,6 +80,10 @@ class ConfluenceClient:
         params = urllib.parse.urlencode({"expand": "body.storage,version,title"})
         return self._request("GET", f"/rest/api/content/{page_id}?{params}")
 
+    def get_page_with_meta(self, page_id: str):
+        params = urllib.parse.urlencode({"expand": "body.storage,version,title,type,space"})
+        return self._request("GET", f"/rest/api/content/{page_id}?{params}")
+
     def list_children(self, page_id: str, recursive: bool = False):
         queue = [page_id]
         seen = set()
@@ -129,6 +136,58 @@ class ConfluenceClient:
     def delete_content(self, content_id: str):
         return self._request("DELETE", f"/rest/api/content/{content_id}")
 
+    def create_page_storage(
+        self, title: str, space_key: str, storage_value: str, parent_id: str = ""
+    ):
+        payload = {
+            "type": "page",
+            "title": title,
+            "space": {"key": space_key},
+            "body": {
+                "storage": {
+                    "value": storage_value,
+                    "representation": "storage",
+                }
+            },
+        }
+        if parent_id:
+            payload["ancestors"] = [{"id": parent_id}]
+        return self._request("POST", "/rest/api/content", payload=payload)
+
+    def upload_attachment(self, page_id: str, file_path: Path):
+        url = f"{self.base_url}/rest/api/content/{page_id}/child/attachment"
+        content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+        boundary = "----ConfluenceBoundary" + uuid.uuid4().hex
+
+        head = (
+            f"--{boundary}\r\n"
+            f"Content-Disposition: form-data; name=\"file\"; filename=\"{file_path.name}\"\r\n"
+            f"Content-Type: {content_type}\r\n\r\n"
+        ).encode("utf-8")
+        tail = f"\r\n--{boundary}--\r\n".encode("utf-8")
+        body = head + file_path.read_bytes() + tail
+
+        req = urllib.request.Request(url, data=body, method="POST")
+        req.add_header("Authorization", self.auth_header)
+        req.add_header("Accept", "application/json")
+        req.add_header("X-Atlassian-Token", "no-check")
+        req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                raw = resp.read().decode("utf-8")
+                return json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            if exc.code == 400 and "same file name as an existing attachment" in detail:
+                return {
+                    "skipped": True,
+                    "reason": "duplicate_filename",
+                    "filename": file_path.name,
+                }
+            raise SystemExit(
+                f"Attachment upload failed for {file_path}: HTTP {exc.code} {detail}"
+            ) from exc
+
 
 def slugify(value: str) -> str:
     # Keep file names portable and readable.
@@ -146,6 +205,120 @@ def webui_to_url(base_url: str, webui: str) -> str:
     if "/wiki" in base_url:
         return base_url.split("/wiki", 1)[0] + webui
     return base_url.rstrip("/") + webui
+
+
+def auto_link_plain_urls(value: str) -> str:
+    return re.sub(r"(?<![\">])(https?://[^\s<]+)", r'<a href="\1">\1</a>', value)
+
+
+def format_inline_markdown(value: str) -> str:
+    escaped = html.escape(value, quote=False)
+    escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
+    escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
+    escaped = re.sub(r"\*([^*]+)\*", r"<em>\1</em>", escaped)
+    escaped = re.sub(
+        r"\[(.*?)\]\((https?://[^)]+)\)",
+        r'<a href="\2">\1</a>',
+        escaped,
+    )
+    escaped = auto_link_plain_urls(escaped)
+    return escaped
+
+
+def markdown_to_storage_html(md_text: str, md_base_dir: Path, image_width: int = 900):
+    lines = md_text.splitlines()
+    html_parts = []
+    attachment_paths = []
+    seen_attachments = set()
+    in_ul = False
+    in_ol = False
+
+    def close_lists():
+        nonlocal in_ul, in_ol
+        if in_ul:
+            html_parts.append("</ul>")
+            in_ul = False
+        if in_ol:
+            html_parts.append("</ol>")
+            in_ol = False
+
+    for raw in lines:
+        line = raw.rstrip()
+        if not line.strip():
+            close_lists()
+            continue
+
+        image_inline = re.search(r"!\[[^\]]*\]\(([^)]+)\)", line)
+        if image_inline:
+            close_lists()
+            prefix = line[: image_inline.start()].strip()
+            suffix = line[image_inline.end() :].strip()
+            image_ref = image_inline.group(1).strip()
+
+            if prefix:
+                html_parts.append(f"<p>{format_inline_markdown(prefix)}</p>")
+
+            if re.match(r"^https?://", image_ref):
+                html_parts.append(
+                    f'<p><ac:image ac:width="{image_width}"><ri:url ri:value="{html.escape(image_ref, quote=True)}" /></ac:image></p>'
+                )
+            else:
+                image_path = (md_base_dir / image_ref).resolve()
+                if not image_path.exists():
+                    raise SystemExit(f"Image file not found: {image_path}")
+                if image_path not in seen_attachments:
+                    attachment_paths.append(image_path)
+                    seen_attachments.add(image_path)
+                html_parts.append(
+                    f'<p><ac:image ac:width="{image_width}"><ri:attachment ri:filename="{html.escape(image_path.name, quote=True)}" /></ac:image></p>'
+                )
+
+            if suffix:
+                html_parts.append(f"<p>{format_inline_markdown(suffix)}</p>")
+            continue
+
+        if line.startswith("# "):
+            close_lists()
+            html_parts.append(f"<h1>{format_inline_markdown(line[2:].strip())}</h1>")
+            continue
+        if line.startswith("## "):
+            close_lists()
+            html_parts.append(f"<h2>{format_inline_markdown(line[3:].strip())}</h2>")
+            continue
+        if line.startswith("### "):
+            close_lists()
+            html_parts.append(f"<h3>{format_inline_markdown(line[4:].strip())}</h3>")
+            continue
+        if line.strip() == "---":
+            close_lists()
+            html_parts.append("<hr/>")
+            continue
+        if line.startswith("- "):
+            if in_ol:
+                html_parts.append("</ol>")
+                in_ol = False
+            if not in_ul:
+                html_parts.append("<ul>")
+                in_ul = True
+            html_parts.append(f"<li>{format_inline_markdown(line[2:].strip())}</li>")
+            continue
+
+        ordered = re.match(r"^(\d+)\.\s+(.*)$", line)
+        if ordered:
+            if in_ul:
+                html_parts.append("</ul>")
+                in_ul = False
+            if not in_ol:
+                html_parts.append("<ol>")
+                in_ol = True
+            html_parts.append(f"<li>{format_inline_markdown(ordered.group(2).strip())}</li>")
+            continue
+
+        close_lists()
+        html_parts.append(f"<p>{format_inline_markdown(line.strip())}</p>")
+
+    close_lists()
+    return "\n".join(html_parts), attachment_paths
 
 
 def cmd_auth_test(client: ConfluenceClient, _args):
@@ -548,6 +721,102 @@ def cmd_export_pages_md(client: ConfluenceClient, args):
     )
 
 
+def cmd_publish_md_page(client: ConfluenceClient, args):
+    md_path = Path(args.md_file)
+    if not md_path.exists():
+        raise SystemExit(f"Markdown file not found: {md_path}")
+
+    md_text = md_path.read_text(encoding="utf-8")
+    storage_html, attachment_paths = markdown_to_storage_html(
+        md_text=md_text,
+        md_base_dir=md_path.parent,
+        image_width=args.image_width,
+    )
+
+    if args.page_id:
+        page = client.get_page_with_meta(args.page_id)
+        title = args.title if args.title else page.get("title", "")
+        payload = {
+            "id": args.page_id,
+            "type": page.get("type", "page"),
+            "title": title,
+            "version": {"number": int(page.get("version", {}).get("number", 1)) + 1},
+            "body": {"storage": {"value": storage_html, "representation": "storage"}},
+        }
+        if args.parent_id:
+            payload["ancestors"] = [{"id": args.parent_id}]
+        if args.space_key:
+            payload["space"] = {"key": args.space_key}
+        target = (
+            json.dumps(
+                {
+                    "mode": "update",
+                    "page_id": args.page_id,
+                    "title": title,
+                    "attachments": [str(p) for p in attachment_paths],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            if args.dry_run
+            else client._request("PUT", f"/rest/api/content/{args.page_id}", payload=payload)
+        )
+    else:
+        if not args.title or not args.space_key:
+            raise SystemExit("Create mode requires --title and --space-key when --page-id is omitted.")
+        target = (
+            json.dumps(
+                {
+                    "mode": "create",
+                    "title": args.title,
+                    "space_key": args.space_key,
+                    "parent_id": args.parent_id,
+                    "attachments": [str(p) for p in attachment_paths],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            if args.dry_run
+            else client.create_page_storage(
+                title=args.title,
+                space_key=args.space_key,
+                storage_value=storage_html,
+                parent_id=args.parent_id,
+            )
+        )
+
+    if args.dry_run:
+        print(target)
+        return
+
+    page_id = target.get("id", "")
+    uploaded = []
+    for file_path in attachment_paths:
+        data = client.upload_attachment(page_id=page_id, file_path=file_path)
+        uploaded.append(
+            {
+                "file": str(file_path),
+                "count": len(data.get("results", [])),
+                "skipped": bool(data.get("skipped", False)),
+                "reason": data.get("reason", ""),
+            }
+        )
+
+    print(
+        json.dumps(
+            {
+                "published": True,
+                "page_id": page_id,
+                "title": target.get("title"),
+                "webui": webui_to_url(client.base_url, target.get("_links", {}).get("webui", "")),
+                "attachment_uploads": uploaded,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="Confluence Cloud API helper")
     parser.add_argument(
@@ -625,6 +894,26 @@ def build_parser():
     p_export.add_argument("--include-root", action="store_true", help="Also export root page")
     p_export.add_argument("--dry-run", action="store_true")
 
+    p_publish = sub.add_parser(
+        "publish-md-page",
+        help="Create/update a Confluence page from Markdown with auto-links and image attachments",
+    )
+    p_publish.add_argument("--md-file", required=True, help="Markdown file path")
+    p_publish.add_argument(
+        "--page-id",
+        default="",
+        help="Update existing page ID (omit for create mode)",
+    )
+    p_publish.add_argument("--title", default="", help="Page title (required in create mode)")
+    p_publish.add_argument(
+        "--space-key",
+        default="",
+        help="Confluence space key (required in create mode)",
+    )
+    p_publish.add_argument("--parent-id", default="", help="Optional parent page ID")
+    p_publish.add_argument("--image-width", type=int, default=900, help="Default image width")
+    p_publish.add_argument("--dry-run", action="store_true")
+
     return parser
 
 
@@ -653,6 +942,7 @@ def main():
         "list-comments": cmd_list_comments,
         "delete-comment": cmd_delete_comment,
         "export-pages-md": cmd_export_pages_md,
+        "publish-md-page": cmd_publish_md_page,
     }
     commands[args.command](client, args)
 
