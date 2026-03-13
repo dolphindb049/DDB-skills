@@ -52,6 +52,39 @@ CREATE TABLE "dfs://ficc_curve_raw_2026"."std_field_mapping_marketdata" (
 PARTITIONED BY targetTable
 comment = "MarketData 标准化字段映射元数据（可执行代码片段）"
 
+if(existsTable(curveRawDbPath, "curve_shch_yield_prepare")){
+    dropTable(database(curveRawDbPath), `curve_shch_yield_prepare)
+}
+if(existsTable(curveRawDbPath, "curve_file_manifest")){
+    dropTable(database(curveRawDbPath), `curve_file_manifest)
+}
+if(existsTable(curveRawDbPath, "curve_table_comment_meta")){
+    dropTable(database(curveRawDbPath), `curve_table_comment_meta)
+}
+
+dbCurveRaw = database(curveRawDbPath)
+curveRawTb = loadTable(curveRawDbPath, "curve_shch_yield_raw")
+rawDefs = schema(curveRawTb).colDefs
+prepColNames = exec name from rawDefs
+prepColTypes = exec int(typeInt) from rawDefs
+
+if(sum(prepColNames == "dates") == 0){
+    prepColNames = prepColNames join `dates
+    prepColTypes = prepColTypes join [18]
+}
+if(sum(prepColNames == "values") == 0){
+    prepColNames = prepColNames join `values
+    prepColTypes = prepColTypes join [18]
+}
+
+tCurvePrep = table(1:0, prepColNames, prepColTypes)
+
+curvePartCol = `curveName
+if(sum(prepColNames == "curveName") == 0){
+    curvePartCol = prepColNames[0]
+}
+dbCurveRaw.createPartitionedTable(tCurvePrep, `curve_shch_yield_prepare, curvePartCol)
+
 
 if(existsTable(instDbPath, "Instrument")){
     dropTable(database(instDbPath), `Instrument)
@@ -67,8 +100,8 @@ if(existsTable(mdDbPath, "MarketData")){
 }
 dbMd = database(mdDbPath)
 tMd = table(1:0,
-    `referenceDate`name`mktDataType`curveType`dayCountConvention`compounding`frequency`interpMethod`extrapMethod`curveName`currency`nodeDates`nodeValues`data`sourceDbPath`sourceTable`updateTime,
-    [DATE,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,MKTDATA,STRING,STRING,TIMESTAMP])
+    `referenceDate`name`mktDataType`curveType`dayCountConvention`compounding`frequency`interpMethod`extrapMethod`dates`values`curveName`currency`settlement`curveModel`curveParams`data`sourceDbPath`sourceTable`updateTime,
+    [DATE,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,DATE,STRING,DICT,MKTDATA,STRING,STRING,TIMESTAMP])
 dbMd.createPartitionedTable(tMd, `MarketData, `referenceDate, sortColumns=`referenceDate`name`updateTime)
 
 print("[OK] 目标TSDB表与映射表已就绪")

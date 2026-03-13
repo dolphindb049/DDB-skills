@@ -1,0 +1,293 @@
+// 03_run_pricing_pipeline.dos
+// 最简步骤3：按 instrument 全量套用 bondPricer 定价
+//
+// 这里的逻辑刻意保持最小：
+// 1) 从标准 Instrument 表提取债券对象及其标准字段；
+// 2) 从标准 MarketData 表预加载标准 curveName -> MKTDATA；
+// 3) 根据 Instrument 里的 discountCurve / currency / subType / creditRating
+//    生成候选曲线名；
+// 4) 命中第一条可用曲线后调用 bondPricer；
+// 5) 把 bondPricer 返回的标准指标落到一个结果表。
+//
+// 为什么很多债最后会落到 CNY_TREASURY_BOND：
+// - 当前标准 Instrument 里不少债没有稳定的 creditRating；
+// - 也没有显式 discountCurve；
+// - 而为了“所有债都能有结果”，这里采用最保守的 fallback：
+//   当信用类曲线无法唯一确定时，统一回退到 CNY_TREASURY_BOND。
+// 这不是最精细的业务定价规则，而是最小可跑通版本。
+// 如果后续要更贴近业务，应优先在标准化映射阶段把 subType / rating /
+// discountCurve 补得更准确，而不是在这里继续堆复杂分支。
+
+if(!exists("pricingDate")) pricingDate = 2026.03.04
+if(!exists("maxBondsToPrice")) maxBondsToPrice = 200000000
+if(!exists("outputDbPath")) outputDbPath = "dfs://ficc_pricing_pipeline"
+if(!exists("outputTablePrefix")) outputTablePrefix = "pricing"
+
+if(!exists("pricing_selected_profile")) run("/hdd/hdd9/jrzhang/.github/skills/ficc_pricing/scripts/01_select_standard_sources.dos")
+run("/hdd/hdd9/jrzhang/.github/skills/ficc_pricing/scripts/02_create_result_schema.dos")
+
+pDate = objByName("pricingDate")
+maxN = int(objByName("maxBondsToPrice"))
+outDbPath = objByName("outputDbPath")
+prefix = objByName("outputTablePrefix")
+
+instDb = objByName("pricing_selected_instrument_db")
+instTable = objByName("pricing_selected_instrument_table")
+mktDb = objByName("pricing_selected_market_db")
+mktTable = objByName("pricing_selected_market_table")
+
+priceTableName = prefix + "_price_result"
+priceOut = loadTable(outDbPath, priceTableName)
+instSrc = loadTable(instDb, instTable)
+mktSrc = loadTable(mktDb, mktTable)
+
+delete from priceOut where pricingDate = pDate
+
+def getFirstString(d, k){
+    try{vv = d[k]}catch(ex0){return ""}
+    if(!isValid(vv)) return ""
+    v = first(vv)
+    if(!isValid(v)) return ""
+    return trim(string(v))
+}
+
+def getDouble(d, k){
+    try{vv = d[k]}catch(ex0){return double(NULL)}
+    if(!isValid(vv)) return double(NULL)
+    try{return double(first(vv))}catch(exd){}
+    return double(NULL)
+}
+
+def getLong(d, k){
+    try{vv = d[k]}catch(ex0){return long(NULL)}
+    if(!isValid(vv)) return long(NULL)
+    try{return long(first(vv))}catch(exl){}
+    return long(NULL)
+}
+
+def hasKey(d, k){
+    try{x = d[k]; return true}catch(ex0){}
+    return false
+}
+
+def containsString(v, s){
+    if(size(v)==0) return false
+    for(jj in 0:(size(v)-1)){
+        if(string(v[jj]) == string(s)) return true
+    }
+    return false
+}
+
+def resolveDiscountCurve(dc, ccy, subType, rating){
+    // 曲线映射顺序：
+    // 1. Instrument 已显式给出 discountCurve -> 直接使用；
+    // 2. 若子类型+评级齐全 -> 币种_子类型_评级；
+    // 3. 若是利率债子类型 -> 币种_子类型；
+    // 4. 其余情况统一 fallback 到币种国债曲线；
+    // 5. 再兜底到 CNY_TREASURY_BOND。
+    sovereign = subType=="TREASURY_BOND" or subType=="CENTRAL_BANK_BILL" or subType=="CDB_BOND" or subType=="EIBC_BOND" or subType=="ADBC_BOND"
+    ccy2 = ccy
+
+    if(dc!="") return dc
+    if(ccy2=="") ccy2 = "CNY"
+
+    if(subType!="" && rating!="") return ccy2 + "_" + subType + "_" + rating
+    if(subType!="" && sovereign) return ccy2 + "_" + subType
+    if(subType!="" && !sovereign && rating=="") return ccy2 + "_TREASURY_BOND"
+    if(subType=="" && rating=="") return ccy2 + "_TREASURY_BOND"
+
+    return "CNY_TREASURY_BOND"
+}
+
+def normalizeRating(r){
+    rr = upper(trim(string(r)))
+    if(rr=="" or rr=="INVALID" or rr=="NULL") return ""
+    if(rr=="AAA" or rr=="AAA+" or rr=="AAA-" or rr=="AA+" or rr=="AA" or rr=="AA-" or rr=="A+" or rr=="A" or rr=="A-" or rr=="BBB+" or rr=="BBB" or rr=="BBB-") return rr
+    return ""
+}
+
+def normalizeSubType(s){
+    ss = upper(trim(string(s)))
+    if(ss=="" or ss=="INVALID" or ss=="NULL") return ""
+    if(ss=="SHORT_FIN_BOND") return "MTN"
+    return ss
+}
+
+def normalizeCurveInput(dc){
+    cc = upper(trim(string(dc)))
+    if(cc=="" or cc=="INVALID" or cc=="NULL") return ""
+    cc = strReplace(cc, "SHORT_FIN_BOND", "MTN")
+    return cc
+}
+
+def stripRatingFromCurve(curveName){
+    s = string(curveName)
+    if(endsWith(s, "_AAA+")) return substr(s, 0, strlen(s)-5)
+    if(endsWith(s, "_AAA-")) return substr(s, 0, strlen(s)-5)
+    if(endsWith(s, "_AAA")) return substr(s, 0, strlen(s)-4)
+    if(endsWith(s, "_AA+")) return substr(s, 0, strlen(s)-4)
+    if(endsWith(s, "_AA-")) return substr(s, 0, strlen(s)-4)
+    if(endsWith(s, "_AA")) return substr(s, 0, strlen(s)-3)
+    if(endsWith(s, "_A+")) return substr(s, 0, strlen(s)-3)
+    if(endsWith(s, "_A-")) return substr(s, 0, strlen(s)-3)
+    if(endsWith(s, "_A")) return substr(s, 0, strlen(s)-2)
+    if(endsWith(s, "_BBB+")) return substr(s, 0, strlen(s)-5)
+    if(endsWith(s, "_BBB-")) return substr(s, 0, strlen(s)-5)
+    if(endsWith(s, "_BBB")) return substr(s, 0, strlen(s)-4)
+    return s
+}
+
+setting = dict(STRING, ANY)
+setting["calcDiscountCurveDelta"] = true
+setting["calcDiscountCurveGamma"] = true
+setting["calcDiscountCurveKeyRateDuration"] = true
+setting["discountCurveShift"] = 0.0001
+setting["discountCurveKeyTerms"] = [1.0, 3.0, 5.0, 7.0, 10.0]
+setting["discountCurveKeyShifts"] = [0.0001, 0.0001, 0.0001, 0.0001, 0.0001]
+
+def toScalarString(v){
+    try{return string(v)}catch(ex2){}
+    try{if(!isValid(v)) return ""}catch(ex0){}
+    try{return string(first(v))}catch(ex1){}
+    return ""
+}
+
+def uniqueCurveCandidates(v){
+    out = string([])
+    for(ii in 0:(size(v)-1)){
+        s = upper(trim(string(v[ii])))
+        if(s=="") continue
+        if(!containsString(out, s)) out.append!(s)
+    }
+    return out
+}
+
+curveNames = exec distinct upper(trim(string(curveName))) from mktSrc where referenceDate<=pDate
+curveDateDict = dict(STRING, DATE)
+curveDataDict = dict(STRING, MKTDATA)
+// 先把 pricingDate 当天可用的标准曲线预加载到内存，后面逐债查字典即可。
+for(k in 0:(size(curveNames)-1)){
+    cn = upper(trim(string(curveNames[k])))
+    cr = select top 1 referenceDate, data from mktSrc where upper(trim(string(curveName)))=cn and referenceDate<=pDate order by referenceDate desc
+    if(size(cr.referenceDate)>0){
+        curveDateDict[cn] = cr.referenceDate[0]
+        curveDataDict[cn] = cr.data[0]
+    }
+}
+
+srcAll = select instrumentId, bondType, instrument from instSrc where !isNull(instrument)
+src = srcAll
+srcRowCount = size(srcAll.instrumentId)
+if(srcRowCount > maxN) src = srcAll[0..(maxN-1)]
+
+priceRows = table(100000:0,
+    `pricingDate`instrumentId`bondType`currency`subType`creditRating`discountCurveInput`resolvedCurveName`triedCurveNames`curveRefDate`status`errorMsg`npv`discountCurveDelta`discountCurveGamma`discountCurveKeyRateDuration`runTime,
+    [DATE,STRING,STRING,STRING,STRING,STRING,STRING,STRING,STRING,DATE,STRING,STRING,DOUBLE,DOUBLE,DOUBLE,STRING,TIMESTAMP]
+)
+
+for(i in 0:(size(src.instrumentId)-1)){
+    iid = string(src.instrumentId[i])
+    btype = "UNKNOWN"
+    if(isValid(src.bondType[i])) btype = string(src.bondType[i])
+    instObj = src.instrument[i]
+
+    status = "Unpriced(Fail)"
+    errMsg = ""
+    curveInput = ""
+    curveName = ""
+    curveRefDate = date(NULL)
+    currency = ""
+    subType = ""
+    rating = ""
+    triedCurveNames = ""
+    rd = dict(STRING, ANY)
+
+    try{
+        // Step A: 从标准 Instrument 对象里取出已经标准化好的 4 个关键字段。
+        // 这里不再做复杂业务映射，只消费标准化结果。
+        d = extractInstrument(instObj)
+        curveInput = normalizeCurveInput(getFirstString(d, "discountCurve"))
+        currency = getFirstString(d, "currency")
+        subType = normalizeSubType(getFirstString(d, "subType"))
+        rating = normalizeRating(getFirstString(d, "creditRating"))
+        curveName = resolveDiscountCurve(curveInput, currency, subType, rating)
+
+        // Step B: 构造候选曲线名。
+        // 候选顺序就是实际查找顺序，triedCurveNames 会完整记录下来。
+        curveName2 = stripRatingFromCurve(curveName)
+        currency2 = iif(currency=="", "CNY", currency)
+        curveName3 = currency2 + "_TREASURY_BOND"
+        curveName4 = "CNY_TREASURY_BOND"
+        curveCandidates = uniqueCurveCandidates([curveName, curveName2, curveName3, curveName4])
+        triedCurveNames = concat(curveCandidates, ",")
+
+        pickedCurve = ""
+        pickedCurveRefDate = date(NULL)
+        pickedCurveData = NULL
+        // Step C: 依次尝试候选曲线，命中第一条就停止。
+        for(ci in 0:(size(curveCandidates)-1)){
+            cn = upper(trim(string(curveCandidates[ci])))
+            curveObj = curveDataDict[cn]
+            if(!isNull(curveObj)){
+                pickedCurve = cn
+                pickedCurveRefDate = curveDateDict[cn]
+                pickedCurveData = curveObj
+                break
+            }
+        }
+
+        if(pickedCurve==""){
+            errMsg = "curve not found candidates: " + triedCurveNames
+        }else{
+            curveName = pickedCurve
+            curveRefDate = pickedCurveRefDate
+            // Step D: bondPricer 使用文档里的 named argument: setting=setting。
+            // 当前只保存 bondPricer 文档里这版明确支持的返回字段：
+            // npv / discountCurveDelta / discountCurveGamma / discountCurveKeyRateDuration。
+            r = bondPricer(instObj, pDate, pickedCurveData, setting=setting)
+            if(endsWith(upper(typestr(r)), "DICTIONARY")) rd = r else rd = dict(`npv, [double(first(r))])
+            status = "Priced"
+        }
+    }catch(ex){
+        errMsg = string(ex)
+    }
+
+    keyRateDurationStr = ""
+    if(hasKey(rd, "discountCurveKeyRateDuration")) keyRateDurationStr = toScalarString(rd["discountCurveKeyRateDuration"])
+
+    row = table(
+        [pDate] as pricingDate,
+        [iid] as instrumentId,
+        [btype] as bondType,
+        [currency] as currency,
+        [subType] as subType,
+        [rating] as creditRating,
+        [curveInput] as discountCurveInput,
+        [curveName] as resolvedCurveName,
+        [triedCurveNames] as triedCurveNames,
+        [curveRefDate] as curveRefDate,
+        [status] as status,
+        [errMsg] as errorMsg,
+        [getDouble(rd, "npv")] as npv,
+        [getDouble(rd, "discountCurveDelta")] as discountCurveDelta,
+        [getDouble(rd, "discountCurveGamma")] as discountCurveGamma,
+        [keyRateDurationStr] as discountCurveKeyRateDuration,
+        [now()] as runTime
+    )
+    append!(priceRows, row)
+}
+
+append!(priceOut, priceRows)
+
+runReport = select
+    pricingDate,
+    count(*) as total,
+    sum(iif(status=="Priced",1,0)) as priced,
+    sum(iif(status=="Unpriced(Fail)",1,0)) as failed,
+    iif(count(*)>0, double(sum(iif(status=="Priced",1,0)))/count(*), 0.0) as successRate
+from priceRows
+group by pricingDate
+
+if(exists("pricing_engine_run_report")) undef("pricing_engine_run_report", SHARED)
+
+select * from runReport

@@ -1,0 +1,74 @@
+// 04_check_pricing_quality.dos
+// 最小校验步骤：
+// 只比较当前定价结果表里的 npv 与 CFETS 估值表中的价格字段。
+// 规则：优先使用 grossPx；若不存在则退回 netPx。
+
+pDate = 2026.03.04
+outDbPath = "dfs://ficc_pricing_pipeline"
+prefix = "pricing"
+
+if(exists("pricingDate")) pDate = objByName("pricingDate")
+if(exists("outputDbPath")) outDbPath = objByName("outputDbPath")
+if(exists("outputTablePrefix")) prefix = objByName("outputTablePrefix")
+
+priceTable = prefix + "_price_result"
+
+if(!(existsDatabase(outDbPath) && existsTable(outDbPath, priceTable))){
+    throw "pricing result table not found, run step 2/3 first"
+}
+if(!(existsDatabase("dfs://ficc_api_pdf_2026") && existsTable("dfs://ficc_api_pdf_2026", "api_getCFETSValuation"))){
+    throw "CFETS valuation table missing: dfs://ficc_api_pdf_2026/api_getCFETSValuation"
+}
+
+priceTb = loadTable(outDbPath, priceTable)
+cfets = loadTable("dfs://ficc_api_pdf_2026", "api_getCFETSValuation")
+
+def hasCol(cols, target){
+    for(i in 0..(size(cols)-1)){
+        if(string(cols[i]) == target) return true
+    }
+    return false
+}
+
+p = select instrumentId, npv, resolvedCurveName, status
+    from priceTb
+    where pricingDate = pDate, status = "Priced", !isNull(npv)
+if(size(p.instrumentId)==0) throw "no priced npv rows for pricingDate=" + string(pDate)
+
+cols = schema(cfets).colDefs.name
+idCol = iif(hasCol(cols, "secID"), "secID", iif(hasCol(cols, "instrumentId"), "instrumentId", iif(hasCol(cols, "ticker"), "ticker", "")))
+dateCol = iif(hasCol(cols, "tradeDate"), "tradeDate", iif(hasCol(cols, "valuationDate"), "valuationDate", ""))
+valCol = iif(hasCol(cols, "grossPx"), "grossPx", iif(hasCol(cols, "netPx"), "netPx", ""))
+
+if(idCol=="" || dateCol=="" || valCol==""){
+    throw "api_getCFETSValuation schema unsupported for npv compare"
+}
+
+sql = "select string(" + idCol + ") as instrumentId, date(" + dateCol + ") as referenceDate, double(" + valCol + ") as cfetsValue from cfets where date(" + dateCol + ")=pDate"
+cf = eval(parseExpr(sql))
+if(size(cf.instrumentId)==0) throw "api_getCFETSValuation has no rows on pricingDate=" + string(pDate)
+
+cmp = ej(p, cf, `instrumentId)
+cmp2 = select instrumentId,
+              npv,
+              cfetsValue,
+              resolvedCurveName,
+              abs(npv-cfetsValue) as absDiff,
+              iif(abs(npv-cfetsValue)<=0.01, "OK", iif(abs(npv-cfetsValue)<=0.1, "WARN", "CHECK")) as compareStatus
+       from cmp
+       where !isNull(npv), !isNull(cfetsValue)
+       order by absDiff desc, instrumentId
+
+if(size(cmp2.instrumentId)==0) throw "no overlapped bonds between pricing result and CFETS valuation"
+
+summary = select
+    count(*) as joinedRows,
+    avg(absDiff) as avgAbsDiff,
+    percentile(absDiff, 95) as p95AbsDiff,
+    sum(iif(compareStatus=="OK",1,0)) as okRows,
+    sum(iif(compareStatus=="WARN",1,0)) as warnRows,
+    sum(iif(compareStatus=="CHECK",1,0)) as checkRows
+from cmp2
+
+print(summary)
+cmp2

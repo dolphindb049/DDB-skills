@@ -1,0 +1,56 @@
+// 01_select_standard_sources.dos
+// 最简步骤1：固定检查标准化对象表是否可用于定价
+
+if(!exists("pricingDate")) pricingDate = 2026.03.04
+
+instDb = "dfs://instrument_std"
+instTable = "Instrument"
+mktDb = "dfs://marketdata_std"
+mktTable = "MarketData"
+
+if(!existsDatabase(instDb) || !existsTable(instDb, instTable)){
+    throw "instrument source missing: " + instDb + "/" + instTable
+}
+if(!existsDatabase(mktDb) || !existsTable(mktDb, mktTable)){
+    throw "market source missing: " + mktDb + "/" + mktTable
+}
+
+instSrc = loadTable(instDb, instTable)
+mktSrc = loadTable(mktDb, mktTable)
+
+instDefs = schema(instSrc).colDefs
+mktDefs = schema(mktSrc).colDefs
+
+hasInstrumentObj = (exec count(*) from instDefs where name="instrument" and typeString="INSTRUMENT")[0] > 0
+hasInstId = (exec count(*) from instDefs where name="instrumentId")[0] > 0
+hasMktObj = (exec count(*) from mktDefs where name="data" and typeString="MKTDATA")[0] > 0
+hasName = (exec count(*) from mktDefs where name="name")[0] > 0
+hasRefDate = (exec count(*) from mktDefs where name="referenceDate")[0] > 0
+
+if(!hasInstrumentObj) throw "Instrument table missing INSTRUMENT column: instrument"
+if(!hasInstId) throw "Instrument table missing key column: instrumentId"
+if(!hasMktObj) throw "MarketData table missing MKTDATA column: data"
+if(!hasName) throw "MarketData table missing curve name column: name"
+if(!hasRefDate) throw "MarketData table missing date column: referenceDate"
+
+pricing_selected_profile = "std_object_pair"
+pricing_selected_instrument_db = instDb
+pricing_selected_instrument_table = instTable
+pricing_selected_market_db = mktDb
+pricing_selected_market_table = mktTable
+
+report = table(
+    [pricingDate] as pricingDate,
+    [pricing_selected_profile] as profileName,
+    [instDb] as instrumentDb,
+    [instTable] as instrumentTable,
+    [mktDb] as marketDb,
+    [mktTable] as marketTable,
+    [long((exec count(*) from instSrc)[0])] as instrumentRows,
+    [long((exec count(*) from mktSrc where referenceDate<=pricingDate)[0])] as marketRowsLePricingDate,
+    [now()] as checkTime
+)
+
+if(exists("pricing_source_selection_report")) undef("pricing_source_selection_report", SHARED)
+
+select * from report

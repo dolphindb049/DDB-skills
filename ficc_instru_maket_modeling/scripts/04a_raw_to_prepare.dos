@@ -1,0 +1,79 @@
+curveRawDbPath = "dfs://ficc_curve_raw_2026"
+rawTable = "curve_shch_yield_raw"
+prepareTable = "curve_shch_yield_prepare"
+
+if(!existsTable(curveRawDbPath, rawTable)){
+    throw "table not found: " + curveRawDbPath + "/" + rawTable
+}
+if(!existsTable(curveRawDbPath, prepareTable)){
+    throw "table not found: " + curveRawDbPath + "/" + prepareTable
+}
+
+curveRaw = loadTable(curveRawDbPath, rawTable)
+curveRawPrepOut = loadTable(curveRawDbPath, prepareTable)
+
+curveRawStd = select
+    date(referenceDate) as referenceDate,
+    string(curveName) as curveName,
+    iif(like(upper(trim(string(tenorLabel))), "*M"),
+        double(replace(upper(trim(string(tenorLabel))), "M", "")) / 12.0,
+        iif(like(upper(trim(string(tenorLabel))), "*Y"),
+            double(replace(upper(trim(string(tenorLabel))), "Y", "")),
+            double(standardTermYear))) as tenorYear,
+    double(yieldPct) / 100.0 as nodeValue
+from curveRaw
+where not isNull(referenceDate) and not isNull(yieldPct) and string(curveType) == "即期"
+
+curveRawNode = select
+    referenceDate,
+    curveName,
+    referenceDate + int(round(tenorYear * 365.0)) as nodeDate,
+    nodeValue
+from curveRawStd
+where not isNull(tenorYear) and tenorYear >= 0 and not isNull(nodeValue)
+
+curveRawNodeAgg = select
+    referenceDate,
+    curveName,
+    nodeDate,
+    avg(nodeValue) as nodeValue
+from curveRawNode
+group by referenceDate, curveName, nodeDate
+order by referenceDate, curveName, nodeDate
+
+curveRawPreparedStr = select
+    concat(string(nodeDate), "|") as dates,
+    concat(string(nodeValue), "|") as values
+from curveRawNodeAgg
+group by referenceDate as normRefDate, curveName as normCurveName
+
+curveRawBase = select * from curveRaw context by date(referenceDate), string(curveName) limit 1
+
+curveRawPreparedCore = select
+    b.*,
+    s.dates,
+    s.values
+from curveRawBase b inner join curveRawPreparedStr s
+on date(b.referenceDate) = s.normRefDate and string(b.curveName) = s.normCurveName
+where not isNull(s.dates)
+  and trim(string(s.dates)) != ""
+  and not isNull(s.values)
+  and trim(string(s.values)) != ""
+
+prepCols = exec name from schema(curveRawPrepOut).colDefs
+coreCols = exec name from schema(curveRawPreparedCore).colDefs
+missingCols = prepCols[not prepCols in coreCols]
+if(size(missingCols) > 0){
+    throw "prepare target has unsupported extra columns: " + concat(missingCols, ",")
+}
+
+curveRawPreparedOut = eval(parseExpr("select " + concat(prepCols, ",") + " from curveRawPreparedCore"))
+
+delete from curveRawPrepOut
+append!(curveRawPrepOut, curveRawPreparedOut)
+
+select
+    (exec count(*) from curveRaw)[0] as rawRows,
+    (exec count(*) from curveRawPreparedCore)[0] as preparedRowsCore,
+    (exec count(*) from curveRawPreparedOut)[0] as preparedRowsWritten,
+    (exec count(*) from curveRawPrepOut)[0] as prepareTableRows

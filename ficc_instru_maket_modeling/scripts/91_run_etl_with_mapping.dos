@@ -1,0 +1,32 @@
+rawDbPath = "dfs://ficc_api_pdf_2026"
+curveRawDbPath = "dfs://ficc_curve_raw_2026"
+instDbPath = "dfs://instrument_std"
+mdDbPath = "dfs://marketdata_std"
+
+run("/hdd/hdd9/jrzhang/.github/skills/ficc_instru_maket_modeling/scripts/03_build_field_mapping.dos")
+
+instMapTb = loadTable(rawDbPath, "std_field_mapping_instrument")
+mdMapTb = loadTable(curveRawDbPath, "std_field_mapping_marketdata")
+
+instCnt = (exec count(*) from instMapTb where sourceTable="api_getBond" and targetTable="Instrument" and sourceDbPath=rawDbPath and targetDbPath=instDbPath)[0]
+mdCnt = (exec count(*) from mdMapTb where sourceTable="curve_shch_yield_prepare" and targetTable="MarketData" and sourceDbPath=curveRawDbPath and targetDbPath=mdDbPath)[0]
+
+if(instCnt < 20){
+    throw "std_field_mapping_instrument 映射条目不足，当前=" + string(instCnt)
+}
+if(mdCnt < 18){
+    throw "std_field_mapping_marketdata 映射条目不足，当前=" + string(mdCnt)
+}
+
+run("/hdd/hdd9/jrzhang/.github/skills/ficc_instru_maket_modeling/scripts/04a_raw_to_prepare.dos")
+run("/hdd/hdd9/jrzhang/.github/skills/ficc_instru_maket_modeling/scripts/04_transform_to_standard.dos")
+
+instOut = loadTable(instDbPath, "Instrument")
+mdOut = loadTable(mdDbPath, "MarketData")
+
+select
+    instCnt as mappingInstrumentRows,
+    mdCnt as mappingMarketDataRows,
+    (exec count(*) from instOut where sourceTable="api_getBond")[0] as instrumentRows,
+    (exec count(*) from mdOut where sourceTable="curve_shch_yield_prepare")[0] as marketRowsFromCurvePrepare,
+    (exec count(*) from mdOut)[0] as marketRowsTotal

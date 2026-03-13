@@ -1,67 +1,39 @@
-# FICC Pricing 标准化 Pipeline
+# ficc_pricing
 
-本目录实现了一个以 `.dos` 为主的标准化流水线，专门适配 `bondPricer` 官方入参要求：
+这是一个按步骤执行的最小 FICC 债券定价 skill。
 
-- `instrument`（标准 Instrument 定义）
-- `pricingDate`（估值日）
-- `discountCurve` / `spreadCurve`（折现曲线 / 利差曲线）
+## 你会做什么
 
-## 流水线步骤
+1. 从标准化建模结果中选定：
+  - `dfs://instrument_std/Instrument`
+  - `dfs://marketdata_std/MarketData`
+2. 在 `dfs://ficc_pricing_pipeline` 中只建立一个结果表：
+  - `pricing_price_result`
+3. 逐只债券：
+  - 从 `Instrument` 里读取标准字段
+  - 从 `MarketData` 里匹配标准曲线
+  - 调 `bondPricer`
+4. 用 `dfs://ficc_api_pdf_2026/api_getCFETSValuation` 做最小外部校验。
 
-1. `scripts/01_pricing_data_readiness.dos`  
-	检查资产与市场数据是否满足最低定价要求，输出缺失字段资产清单。
-
-2. `scripts/02_curve_dependency_check.dos`  
-	检查债券到曲线的映射依赖，拦截孤儿债券（缺曲线）。
-
-3. `scripts/03_create_pricing_schema.dos`  
-	创建标准输出表结构（已存在则 pass）。
-
-4. `scripts/04_run_pricing_engine.dos`  
-	批量执行核心定价引擎，调用 `bondPricer` 并回写结果。
-
-5. `scripts/05_validate_pricing_results.dos`  
-	估值结果核对与异常统计，输出验证报告。
-
-## 一键执行
-
-`scripts/00_run_pipeline.dos` 会顺序执行 1~5 步。
+## 手动执行顺序
 
 ```dolphindb
 pricingDate = 2026.03.04
-outputDbPath = "dfs://ficc_pricing_pipeline"
-outputTablePrefix = "pricing"
-maxBondsPerProfile = 200
-run(".github/skills/ficc_pricing/scripts/00_run_pipeline.dos")
+run(".github/skills/ficc_pricing/scripts/01_select_standard_sources.dos")
+run(".github/skills/ficc_pricing/scripts/02_create_result_schema.dos")
+run(".github/skills/ficc_pricing/scripts/03_run_pricing_pipeline.dos")
+run(".github/skills/ficc_pricing/scripts/04_check_pricing_quality.dos")
 ```
 
-## 默认输入源（两组）
+## 官网文档入口
 
-- 组1：`dfs://instrument_std`.`Instrument` + `dfs://marketdata_std`.`MarketData`
-- 组2：`dfs://ficc_api_pdf_2026`.`std_instrument_bond` + `dfs://ficc_api_pdf_2026`.`std_market_curve`
+- [bondPricer](https://docs.dolphindb.cn/zh/funcs/b/bondPricer.html)
+- [parseInstrument](https://docs.dolphindb.cn/zh/funcs/p/parseInstrument.html)
+- [parseMktData](https://docs.dolphindb.cn/zh/funcs/p/parseMktData.html)
+- [extractInstrument](https://docs.dolphindb.cn/zh/funcs/e/extractInstrument.html)
+- [extractMktData](https://docs.dolphindb.cn/zh/funcs/e/extractMktData.html)
 
-## 输出表（`outputDbPath`）
+## 推荐阅读
 
-- `${outputTablePrefix}_price_result`
-- `${outputTablePrefix}_risk_result`
-- `${outputTablePrefix}_run_summary`
-- `${outputTablePrefix}_validation_summary`
-- `${outputTablePrefix}_failure_detail`（逐标的失败归因）
-
-## 共享表报告
-
-- `pricing_data_readiness_report`
-- `pricing_data_readiness_missing_assets`
-- `pricing_curve_dependency_report`
-- `pricing_curve_orphan_bonds`
-- `pricing_output_schema_report`
-- `pricing_engine_run_report`
-- `pricing_validation_report`
-
-## Python 报告（可选）
-
-执行 `scripts/generate_report.py` 可把共享表结果在终端打印成简报：
-
-```bash
-uv run .github/skills/ficc_pricing/scripts/generate_report.py --host 127.0.0.1 --port 7731 --pricing-date 2026.03.04
-```
+- [reference/PRICING_KNOWLEDGE_MAP.md](reference/PRICING_KNOWLEDGE_MAP.md)
+- [reference/INTERFACE_CONTRACT.md](reference/INTERFACE_CONTRACT.md)
