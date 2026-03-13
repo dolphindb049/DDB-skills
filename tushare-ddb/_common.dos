@@ -1,0 +1,70 @@
+/**
+ * _common.dos — Tushare 公共工具层
+ * ─────────────────────────────────────
+ * 提供: token 配置、httpClient 调用封装、全 A 票池、交易日历。
+ * 所有数据源脚本开头 source 本文件即可。
+ *
+ * 用法:
+ *   source "/your/path/_common.dos"
+ */
+
+try{ loadPlugin("httpClient") } catch(ex){}
+
+// ════════════ 全局配置（只改这里） ════════════
+def tsCfg(){
+    cfg = dict(STRING, ANY)
+    cfg["token"]   = "e2a5d405b8d9279d2195ea8cf3d09dd8be4d8cfbafb676f6bc14f24c"
+    cfg["apiUrl"]  = "https://api.tushare.pro"
+    cfg["timeout"] = 30000l
+    return cfg
+}
+
+// ════════════ HTTP 调用封装 ════════════
+/**
+ * 调用 Tushare API, 返回 table。
+ * 空结果时返回 0 行 2 列占位表 (colNames 必须是向量)。
+ */
+def callTS(apiName, params, fields){
+    cfg = tsCfg()
+    body = dict(STRING, ANY)
+    body["api_name"] = apiName
+    body["token"]    = cfg["token"]
+    body["params"]   = params
+    body["fields"]   = fields
+    resp = httpClient::httpPost(cfg["apiUrl"], toStdJson(body), cfg["timeout"])
+    if(resp["responseCode"] != 200){
+        writeLog("[TS] HTTP " + string(resp["responseCode"]) + " on " + apiName)
+        return table(1:0, `c1`c2, [STRING, INT])
+    }
+    j = fromStdJson(resp["text"])
+    if(j["code"] != 0){
+        writeLog("[TS] API error " + apiName + ": " + string(j["msg"]))
+        return table(1:0, `c1`c2, [STRING, INT])
+    }
+    cols = j["data"]["fields"]
+    rows = j["data"]["items"]
+    if(size(rows) == 0) return table(1:0, `c1`c2, [STRING, INT])
+    return table(transpose(rows)).rename!(cols)
+}
+
+// ════════════ 全 A 活跃票池 ════════════
+def tsGetSymbols(){
+    p = dict(STRING, ANY)
+    p["exchange"]    = ""
+    p["list_status"] = "L"
+    t = callTS("stock_basic", p, "ts_code")
+    if(size(t) == 0) return array(STRING, 0)
+    return exec string(ts_code) from t
+}
+
+// ════════════ 交易日历 ════════════
+def tsGetTradeDays(startDate, endDate){
+    p = dict(STRING, ANY)
+    p["exchange"]   = ""
+    p["start_date"] = temporalFormat(startDate, "yyyyMMdd")
+    p["end_date"]   = temporalFormat(endDate, "yyyyMMdd")
+    p["is_open"]    = "1"
+    t = callTS("trade_cal", p, "cal_date")
+    if(size(t) == 0) return array(DATE, 0)
+    return sort(exec temporalParse(string(cal_date), "yyyyMMdd") from t)
+}

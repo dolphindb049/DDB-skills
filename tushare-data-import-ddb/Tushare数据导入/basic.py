@@ -3,7 +3,7 @@ Author: tanhua hua.tan@dolphindb.com
 Date: 2025-10-21 16:22:33
 LastEditors: tanhua hua.tan@dolphindb.com
 LastEditTime: 2025-10-22 11:58:30
-FilePath: \PythonModules\TushareToDDB\basic.py
+FilePath: /PythonModules/TushareToDDB/basic.py
 Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 '''
 #!/usr/bin/env python
@@ -34,24 +34,15 @@ startDate = "20210101"
 endDate = datetime.date.today().strftime("%Y%m%d")
 
 # 分钟频任务配置
-# 分钟频导入不建议并入原有日更批量入口，而应使用专用脚本执行：
-# 1. AutoLoadMinuteHistory.py: 近一段历史分钟回补
-# 2. AutoLoadMinuteRealtime.py: 每分钟增量补齐
-# 3. CheckMinuteCompleteness.py: 完整性检查/修复
 minuteTask = {
-    "symbols": [
-        "000001.SZ",
-        "600000.SH"
-    ],
+    "symbols": [],
+    "useAllActiveSymbols": True,
     "freq": "1min",
-    "historyDays": 7,
+    "apiBatchCodes": 1000,
     "loopIntervalSeconds": 60,
-    "checkEveryLoops": 10,
-    "apiBatchCodes": 4,
-    "pause": 31.0,
-    "retryWait": 35.0,
-    "batchSize": 20,
-    "maxRetries": 3
+    "pause": 0.0,
+    "retryWait": 1.0,
+    "maxRetries": 1
 }
 
 # 需要导入的数据源列表

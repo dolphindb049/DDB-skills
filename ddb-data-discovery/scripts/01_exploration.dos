@@ -1,30 +1,32 @@
-// 脚本功能：列出集群所有 DFS 数据库和表
-// 适用场景：初次连接DolphinDB集群，快速了解所有可用数据资产
-// 注意事项：可能需要管理员权限才能查看完整列表；getChunksMeta 可能会非常耗时，建议在非高峰期使用
+// ============================================================
+// 01_exploration.dos — 全库扫描：发现所有数据库和表
+// ============================================================
+// 适用场景：初次连接陌生 DolphinDB 集群，快速了解有哪些数据资产
+// 执行方式：uv run execute.py 01_exploration.dos --host <IP> --port <PORT>
+// 注意：本脚本纯只读，不会修改任何数据
 
-// 1. 获取元数据 (Metadata Inspection)
-// `getChunksMeta()` 返回集群中所有数库块(chunks)的元数据表
-// 这是一个非常底层的函数，能显示所有已经入库的数据块信息
-t = getChunksMeta()
+// ── Step 1: 列出所有 DFS 数据库 ──
+// getDFSDatabases() 返回一个字符串向量，每个元素是一个 dfs:// 路径
+all_dbs = getDFSDatabases()
+print("=== 发现的数据库 (" + string(size(all_dbs)) + " 个) ===")
+print(all_dbs)
 
-// 2. 提取并去重 DFS 路径 (Unique Path Extraction)
-// 每个 chunk 都有一个 dfsPath，我们通过去重来获取所有的数据库/分区路径
-// 这一步能让我们知道系统里到底有哪些库
-// 注意：dfspath 列可能是 STRING 类型
-all_paths = select distinct dfsPath from t
+// ── Step 2: 列出所有 DFS 表 (全局) ──
+// getDFSTables() 不接受参数，返回所有表的全路径
+all_tables = getDFSTables()
+print("\n=== 发现的 DFS 表 (" + string(size(all_tables)) + " 个) ===")
+print(all_tables)
 
-// 3. 统计发现的路径数量
-print("--- 发现的 DFS 路径数量 ---")
-print(all_paths.count())
+// ── Step 3: 按数据库列出表 (推荐) ──
+// getDFSTablesByDatabase(dbPath) 接受一个数据库路径参数
+// ⚠️ 注意区分: getDFSTables() 无参数, getDFSTablesByDatabase() 需要参数
+// 下面遍历每个数据库，列出其中的表
+for(dbPath in all_dbs) {
+    tables_in_db = getDFSTablesByDatabase(dbPath)
+    print("\n--- " + dbPath + " (" + string(size(tables_in_db)) + " 张表) ---")
+    print(tables_in_db)
+}
 
-// 4. 展示前 50 个路径
-// 供用户快速浏览
-print("\n--- 路径预览 (前 50 条) ---")
-print(select top 50 * from all_paths)
-
-// 5. 自动推断潜在的数据库
-// 这一步尝试列出所有看起来像数据库根目录的路径（通常是第一级或第二级目录）
-// 这对于没有文档的新环境非常有帮助
-print("\n--- 潜在的数据库列表 (需手动验证) ---")
-// 这里我们只是简单展示，实际探索时可以尝试 `database(path)` 连接
-// 你可以复制下面的路径，替换后续脚本中的 database URL
+// ── 输出说明 ──
+// 后续操作: 选中你感兴趣的数据库和表名，填入 02_structure.dos 的配置区域
+// 例如: dbPath = "dfs://minute_factor", tableName = "stock_minute_1m"

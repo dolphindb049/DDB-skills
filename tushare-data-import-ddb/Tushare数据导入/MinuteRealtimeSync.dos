@@ -1,0 +1,345 @@
+/**
+ * MinuteRealtimeSync.dos
+ * ─────────────────────────────────────────────────────────────
+ * 纯 DolphinDB 服务端分钟频实时同步脚本。
+ *
+ * API 封装借鉴 tushare.dos (Author: DaYan, v1.0.2):
+ *   - 使用 fromStdJson 安全解析 JSON
+ *   - 使用 table(transpose(rows)).rename!(cols) 一行构表
+ *
+ * 原理:
+ *   1. 通过 httpClient 插件直接调用 Tushare HTTP API (rt_min)
+ *   2. 全 A 股票池按 batchSize 分批拉取
+ *   3. 与 DFS 表中已有数据做 watermark 比对，只追加新行
+ *   4. 用 scheduleJob 在交易时段自动定时执行
+ *
+ * 部署:
+ *   在任意一个 data node 上 source 本脚本即可。
+ *   脚本包含三个入口:
+ *     ① runMinuteOnce()          —— 手动执行一轮
+ *     ② installMinuteSchedule()  —— 注册定时任务 (每日 9:30, 循环至 15:01)
+ *     ③ removeMinuteSchedule()   —— 删除定时任务
+ *
+ * 集群说明:
+ *   Tushare 是单一外部数据源，不需要多节点并发拉取。在一个 data node
+ *   上拉取然后写入 DFS，DolphinDB 会自动把数据分布到各节点的分区。
+ *   如需 HA，可在两个节点都注册同一个 scheduleJob，通过 mutex 控制。
+ */
+
+try{ loadPlugin("httpClient") } catch(ex){}
+
+// ─────────────────── 配置函数 ───────────────────
+def minuteSyncCfg(){
+    cfg = dict(STRING, ANY)
+    cfg["token"]     = "e2a5d405b8d9279d2195ea8cf3d09dd8be4d8cfbafb676f6bc14f24c"
+    cfg["apiUrl"]    = "https://api.tushare.pro"
+    cfg["dbPath"]    = "dfs://minute_factor"
+    cfg["tableName"] = "stock_minute_1m"
+    cfg["batchSize"] = 1000
+    cfg["timeout"]   = 30000
+    cfg["colNames"]  = `ts_code`trade_date`trade_time`open`high`low`close`vol`amount`pre_close`change`pct_chg`update_time
+    cfg["colTypes"]  = [SYMBOL, DATE, TIMESTAMP, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, TIMESTAMP]
+    return cfg
+}
+
+// ─────────────────── 确保分钟库表存在 ───────────────────
+def ensureMinuteTable(){
+    cfg = minuteSyncCfg()
+    dbName = cfg["dbPath"]
+    tbName = cfg["tableName"]
+    if(!existsDatabase(dbName)){
+        dbDate = database("", RANGE, date(datetimeAdd(2020.01M, 0..20*12, "M")))
+        dbSymbol = database("", HASH, [SYMBOL, 20])
+        database(dbName, COMPO, [dbDate, dbSymbol], engine="TSDB")
+    }
+    db = database(dbName)
+    if(existsTable(dbName, tbName)){
+        return loadTable(dbName, tbName)
+    }
+    schemaTB = table(
+        array(SYMBOL, 0) as ts_code,
+        array(DATE, 0) as trade_date,
+        array(TIMESTAMP, 0) as trade_time,
+        array(DOUBLE, 0) as open,
+        array(DOUBLE, 0) as high,
+        array(DOUBLE, 0) as low,
+        array(DOUBLE, 0) as close,
+        array(DOUBLE, 0) as vol,
+        array(DOUBLE, 0) as amount,
+        array(DOUBLE, 0) as pre_close,
+        array(DOUBLE, 0) as changeVal,
+        array(DOUBLE, 0) as pct_chg,
+        array(TIMESTAMP, 0) as update_time
+    )
+    update schemaTB set colNames = `ts_code`trade_date`trade_time`open`high`low`close`vol`amount`pre_close`change`pct_chg`update_time
+    db.createPartitionedTable(
+        table=schemaTB,
+        tableName=tbName,
+        partitionColumns=`trade_date`ts_code,
+        compressMethods={trade_time:"delta"},
+        sortColumns=`ts_code`trade_time,
+        keepDuplicates=LAST
+    )
+    return loadTable(dbName, tbName)
+}
+
+// ─────────────────── Tushare HTTP 调用封装 (借鉴 tushare.dos) ───────────────────
+/**
+ *  调用 Tushare API 并直接返回 table。
+ *  使用 fromStdJson (安全) + table(transpose(rows)).rename!(cols) (简洁)
+ *  替代原先的 parseExpr().eval() + 手动拼列。
+ *  空结果或错误时返回 0 行 table。
+ */
+def callTushareAPI(apiName, params, fields){
+    cfg = minuteSyncCfg()
+    bodyDict = dict(STRING, ANY)
+    bodyDict["api_name"] = apiName
+    bodyDict["token"] = cfg["token"]
+    bodyDict["params"] = params
+    bodyDict["fields"] = fields
+    bodyJson = toStdJson(bodyDict)
+    resp = httpClient::httpPost(cfg["apiUrl"], bodyJson, cfg["timeout"])
+    if(resp["responseCode"] != 200){
+        writeLog("[MinuteSync] HTTP error: code=" + string(resp["responseCode"]))
+        return table(1:0, `empty`flag, [STRING, INT])
+    }
+    respData = fromStdJson(resp["text"])
+    if(respData["code"] != 0){
+        writeLog("[MinuteSync] API error: " + string(respData["msg"]))
+        return table(1:0, `empty`flag, [STRING, INT])
+    }
+    cols = respData["data"]["fields"]
+    rows = respData["data"]["items"]
+    if(size(rows) == 0){
+        return table(1:0, `empty`flag, [STRING, INT])
+    }
+    return table(transpose(rows)).rename!(cols)
+}
+
+// ─────────────────── 获取全 A 股活跃票池 ───────────────────
+def getActiveSymbols(){
+    params = dict(STRING, ANY)
+    params["exchange"] = ""
+    params["list_status"] = "L"
+    t = callTushareAPI("stock_basic", params, "ts_code")
+    if(t.size() == 0) return array(STRING, 0)
+    return exec string(ts_code) from t
+}
+
+// ─────────────────── 拉取一批股票的实时分钟数据 ───────────────────
+def fetchRtMinBatch(tsCodes, freq){
+    cfg = minuteSyncCfg()
+    params = dict(STRING, ANY)
+    params["ts_code"] = concat(tsCodes, ",")
+    params["freq"] = freq
+    t = callTushareAPI("rt_min", params, "")
+    if(t.size() == 0) return table(1:0, string(cfg["colNames"]), cfg["colTypes"])
+
+    // 类型转换 + 补齐缺失列，一条 select 搞定
+    tmp = select
+        symbol(ts_code) as ts_code,
+        date(temporalParse(string(time), "yyyy-MM-dd HH:mm:ss")) as trade_date,
+        temporalParse(string(time), "yyyy-MM-dd HH:mm:ss") as trade_time,
+        double(open) as open,
+        double(high) as high,
+        double(low) as low,
+        double(close) as close,
+        double(vol) as vol,
+        double(amount) as amount,
+        double() as pre_close,
+        double() as changeVal,
+        double() as pct_chg,
+        timestamp(now()) as update_time
+    from t
+    return select ts_code, trade_date, trade_time, open, high, low, close, vol, amount, pre_close, changeVal as change, pct_chg, update_time from tmp
+}
+
+// ─────────────────── 获取当天已有数据的 watermark ───────────────────
+def getWatermarks(tradeDate){
+    cfg = minuteSyncCfg()
+    dbPath = cfg["dbPath"]
+    tbName = cfg["tableName"]
+    if(!existsTable(dbPath, tbName)) return dict(STRING, TIMESTAMP)
+    t = loadTable(dbPath, tbName)
+    result = select ts_code, max(trade_time) as max_time from t where trade_date = tradeDate group by ts_code
+    wm = dict(STRING, TIMESTAMP)
+    if(result.size() == 0) return wm
+    for(i in 0..(result.size()-1)){
+        wm[result["ts_code"][i]] = result["max_time"][i]
+    }
+    return wm
+}
+
+// ─────────────────── 核心同步逻辑：跑一轮 ───────────────────
+def runMinuteOnce(){
+    cfg = minuteSyncCfg()
+    dbPath = cfg["dbPath"]
+    tbName = cfg["tableName"]
+    batchSize = cfg["batchSize"]
+    colNames = cfg["colNames"]
+    colTypes = cfg["colTypes"]
+    startTs = now()
+    writeLog("[MinuteSync] === Starting minute sync round ===")
+
+    ensureMinuteTable()
+
+    allSymbols = getActiveSymbols()
+    if(allSymbols.size() == 0){
+        writeLog("[MinuteSync] No active symbols, aborting.")
+        return
+    }
+    writeLog("[MinuteSync] Active symbols: " + string(allSymbols.size()))
+
+    today = date(now())
+    watermarks = getWatermarks(today)
+    writeLog("[MinuteSync] Existing watermarks: " + string(watermarks.size()) + " symbols")
+
+    totalNew = 0
+    batchCount = int(ceil(double(allSymbols.size()) / batchSize))
+    for(b in 0..(batchCount-1)){
+        startIdx = b * batchSize
+        endIdx   = min((b + 1) * batchSize, allSymbols.size())
+        batchCodes = allSymbols[startIdx : endIdx]
+
+        rawData = fetchRtMinBatch(batchCodes, "1MIN")
+        if(rawData.size() == 0){
+            writeLog("[MinuteSync] Batch " + string(b+1) + "/" + string(batchCount) + " returned 0 rows")
+            continue
+        }
+
+        // 过滤：只保留比 watermark 新的行
+        newRows = table(1:0, colNames, colTypes)
+        codes = exec distinct(ts_code) from rawData
+        for(code in codes){
+            codeRows = select * from rawData where ts_code == code
+            wm = watermarks.find(code)
+            if(wm != NULL){
+                codeRows = select * from codeRows where trade_time > wm
+            }
+            if(codeRows.size() > 0){
+                newRows.append!(codeRows)
+            }
+        }
+
+        if(newRows.size() > 0){
+            t = loadTable(dbPath, tbName)
+            t.append!(newRows)
+            totalNew += newRows.size()
+        }
+        writeLog("[MinuteSync] Batch " + string(b+1) + "/" + string(batchCount) + " done, new=" + string(newRows.size()))
+    }
+
+    t = loadTable(dbPath, tbName)
+    rowCount = exec count(*) from t where trade_date = today
+    maxTime  = exec max(trade_time) from t where trade_date = today
+    elapsed  = double(now() - startTs) / 1000.0
+
+    writeLog("[MinuteSync] === Round complete: appended=" + string(totalNew) +
+             " today_rows=" + string(rowCount) +
+             " max_time=" + string(maxTime) +
+             " elapsed=" + string(elapsed) + "s ===")
+}
+
+// ─────────────────── 定时任务管理 ───────────────────
+
+/**
+ * 盘中循环：从当前时刻起，每 60 秒执行一轮 sync，直到 15:01 自动退出。
+ * 仅在交易时段 (9:30~11:30, 13:00~15:01) 内实际拉数据。
+ */
+def minuteSyncLoop(){
+    writeLog("[MinuteSync] minuteSyncLoop started on node " + getNodeAlias())
+    do{
+        nowTime = time(now())
+        inMorning   = nowTime >= 09:30:00.000 && nowTime <= 11:31:00.000
+        inAfternoon = nowTime >= 13:00:00.000 && nowTime <= 15:01:00.000
+        if(inMorning || inAfternoon){
+            try{
+                runMinuteOnce()
+            } catch(ex){
+                writeLog("[MinuteSync] Error in loop: " + string(ex))
+            }
+        } else {
+            writeLog("[MinuteSync] Outside trading session, sleeping...")
+        }
+        sleep(60000)
+    } while(time(now()) <= 15:01:00.000)
+    writeLog("[MinuteSync] minuteSyncLoop finished for today.")
+}
+
+/**
+ * 注册每日定时任务：每个交易日 9:30 启动 minuteSyncLoop，自动循环到 15:01 退出。
+ * endDate 设为 2099.12.31 表示长期运行。
+ */
+def installMinuteSchedule(){
+    jobId = "tushare_minute_sync"
+    try{ deleteScheduledJob(jobId) } catch(ex){}
+    scheduleJob(
+        jobId,
+        "Tushare minute-bar realtime sync (daily 9:30-15:01 loop)",
+        minuteSyncLoop,
+        09:30m,
+        today(),
+        2099.12.31,
+        "D"
+    )
+    writeLog("[MinuteSync] Installed daily schedule job: " + jobId)
+    print("Schedule installed. It will start at 9:30 each day and loop until 15:01.")
+    print("Verify with: getScheduledJobs()")
+}
+
+def removeMinuteSchedule(){
+    jobId = "tushare_minute_sync"
+    try{
+        deleteScheduledJob(jobId)
+        writeLog("[MinuteSync] Removed schedule job: " + jobId)
+        print("Schedule removed.")
+    } catch(ex){
+        print("No schedule to remove: " + string(ex))
+    }
+}
+
+// ─────────────────── 诊断工具 ───────────────────
+def checkMinuteCoverage(tradeDate){
+    cfg = minuteSyncCfg()
+    expectedBars = 241
+    t = loadTable(cfg["dbPath"], cfg["tableName"])
+    coverage = select ts_code,
+                      count(*) as bar_count,
+                      min(trade_time) as first_bar,
+                      max(trade_time) as last_bar,
+                      double(count(*)) / expectedBars * 100 as coverage_pct
+               from t
+               where trade_date = tradeDate
+               group by ts_code
+               order by bar_count asc
+    totalSymbols = exec nunique(ts_code) from t where trade_date = tradeDate
+    fullSymbols  = exec count(*) from coverage where bar_count >= expectedBars
+    writeLog("[MinuteSync] Coverage for " + string(tradeDate) +
+             ": total_symbols=" + string(totalSymbols) +
+             " full(241bars)=" + string(fullSymbols))
+    return coverage
+}
+
+def minuteStatus(){
+    cfg = minuteSyncCfg()
+    today = date(now())
+    t = loadTable(cfg["dbPath"], cfg["tableName"])
+    totalRows = exec count(*) from t
+    todayRows = exec count(*) from t where trade_date = today
+    todaySymbols = exec nunique(ts_code) from t where trade_date = today
+    maxTime = exec max(trade_time) from t where trade_date = today
+    print("=== Minute Table Status ===")
+    print("Total rows (all dates): " + string(totalRows))
+    print("Today (" + string(today) + ") rows: " + string(todayRows))
+    print("Today symbols: " + string(todaySymbols))
+    print("Today max trade_time: " + string(maxTime))
+    jobs = getScheduledJobs()
+    syncJobs = select * from jobs where jobId = "tushare_minute_sync"
+    if(size(syncJobs) > 0){
+        print("Schedule: ACTIVE")
+    } else {
+        print("Schedule: NOT INSTALLED (run installMinuteSchedule() to activate)")
+    }
+}
+
+// backfillMinute(2026.03.09, 2026.03.11)

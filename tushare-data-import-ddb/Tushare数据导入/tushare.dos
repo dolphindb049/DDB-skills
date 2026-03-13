@@ -1,0 +1,48 @@
+module tushare
+
+/* 
+*  @ brief  
+*  调用Tushare官方接口
+*  @ Author: DaYan
+*  @ Last modification time: 2026.01.28
+*  @ DolphinDB server version: 3.00.4.2
+*/
+
+def module_info(){
+    res = dict(STRING,ANY)
+    res["moduleName"] = "tushare"
+    res["moduleVersion"] = "1.0.2"
+    res["isFree"] = true
+    return res
+}
+
+/*
+*  @FunctionName: getApiData
+*  @Brief: 调用Tushare官方数据接口
+*  @Param: token: 用户的认证信息
+*  @Param: apiName: 接口名称
+*  @Param: params: 接口参数，（字典类型）
+*  @Param: columns: 指定返回的列，（数组类型）
+*  @Return: a table
+*  @SampleUsage: GetApiData( "xxx", "stock_basic", {"list_stauts":"L", "limit": 200}, ["ts_code","name","area","industry","list_date"] );
+*/
+def getApiData(token, apiName, params=NULL, columns=[]){
+    header=dict(string,string);
+    header["Authorization"] = token;
+    header["Agent"] = "DolpinDB";
+    data=dict(string,ANY);
+    data["params"] = params;
+    data["fields"] = columns;
+    resp = httpClient::httpPost("https://api.tushare.pro/dataapi/"+apiName+"/", toStdJson(data), 20000, header);
+    if (resp["responseCode"] != 200) {
+        throw "Tusahre接口,网络异常, " + ", " + toStdJson(resp);
+    }
+    respData = fromStdJson(resp["text"]);
+    if (respData["code"] != 0) {
+        throw "Tusahre接口返回异常, " + apiName + ", " + respData["msg"];
+    }
+    cols = respData["data"]["fields"];
+    rows = respData["data"]["items"];
+    tt = table(transpose(rows)).rename!(cols);
+    return tt;
+};

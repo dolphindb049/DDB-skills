@@ -1,46 +1,82 @@
-// 脚本功能：数据预处理 (Data Preprocessing) 全流程
-// 包含：空值处理 (Null Handling), 数据转换, 重命名等
-// 适用场景：准备高质量的干净数据，用于后续指标计算或机器学习
+// ============================================================
+// 04_cleaning.dos — 数据质量检查：NULL统计、重复检测、基础清洗
+// ============================================================
+// 适用场景：评估数据可用性，为后续分析做准备
+// 前置依赖：已通过 03_queries.dos 了解数据基本面貌
 
 // --- 配置参数 (USER CONFIG) ---
-dbPath = "dfs://stockMinKSH"          
-tableName = "stockMinKSH_v2"          
-primaryKey = "DateTime"              // 用于排序和时间序列填充
+dbPath = "dfs://minute_factor"
+tableName = "stock_minute_1m"
+checkDate = 2026.03.10             // 选一个数据量较大的日期做深度检查
 
-// 1. 加载数据子集到内存 (Load Subset to In-Memory Table)
-// 为什么不全部加载到内存？因为大数据可能会爆内存！推荐按需筛选。
-db = database(dbPath)
-t = loadTable(db, tableName)
+// ── Step 1: 全列 NULL 统计 ──
+// 技巧: 用 iif(isNull(col), 1, 0) + sum 批量统计每列的空值数
+// DDB 没有 count_null 之类的快捷函数
+t = loadTable(dbPath, tableName)
 
-// 假设我们只关心最近 1 天的数据，或者只关心某一个股票
-// 过滤条件可以灵活修改 (FILTER)
-targetDate = 2021.06.30;
-print("加载数据: SecurityID='000001.SZ' and Date=" + targetDate)
+print("=== 全列 NULL 统计 ===")
+select count(*) as total,
+    sum(iif(isNull(ts_code), 1, 0)) as null_ts_code,
+    sum(iif(isNull(trade_date), 1, 0)) as null_trade_date,
+    sum(iif(isNull(trade_time), 1, 0)) as null_trade_time,
+    sum(iif(isNull(open), 1, 0)) as null_open,
+    sum(iif(isNull(high), 1, 0)) as null_high,
+    sum(iif(isNull(low), 1, 0)) as null_low,
+    sum(iif(isNull(close), 1, 0)) as null_close,
+    sum(iif(isNull(vol), 1, 0)) as null_vol,
+    sum(iif(isNull(amount), 1, 0)) as null_amount,
+    sum(iif(isNull(pre_close), 1, 0)) as null_pre_close,
+    sum(iif(isNull(change), 1, 0)) as null_change,
+    sum(iif(isNull(pct_chg), 1, 0)) as null_pct_chg
+from t
 
-// 2. 选择需要的列 (Select Columns)
-// 我们只需要关键列，例如 ClosePx (LastPx), Volume, DateTime
-// 这样可以减少内存占用
-data = select SecurityID, DateTime, LastPx, Volume from t where SecurityID="000001.SZ" order by DateTime
+// ── Step 2: 重复行检测 ──
+// 业务逻辑: 同一只股票(ts_code)+同一分钟(trade_time) 不应出现多次
+// 用 group by + having count(*) > 1 找出违规记录
+print("\n=== 重复行检测 (指定日期) ===")
+dup_check = select count(*) as cnt from t
+    where trade_date = checkDate
+    group by ts_code, trade_time
+    having count(*) > 1
+dup_count = exec count(*) from dup_check
+print("重复组数: " + string(dup_count))
+if(dup_count > 0) { print(select top 10 * from dup_check) }
 
-// 3. 模拟数据质量问题 (Inject Problems)
-// 为了演示修复，我们手动将一些值设为 NULL
-// 实际场景中这一步不需要，直接跳至修复
-update data set LastPx = double(NULL) where rowNo(LastPx) % 50 == 0;
-print("\n--- 原始数据 (包含 NULL) ---")
-print(exec count(*) from data where isNull(LastPx))
+// ── Step 3: 每只股票的 bar 数量一致性 ──
+// A股分钟线正常应该是 241 bar/天 (9:30-11:30=120min, 13:00-15:00=120min, +收盘1)
+print("\n=== 每只股票的 bar 数量分布 (指定日期) ===")
+bar_dist = select count(*) as bar_count from t
+    where trade_date = checkDate
+    group by ts_code
 
-// 4. 空值填充策略 (Handling Missing Values)
-// DolphinDB 提供了极强的向量化填充函数
-// Strategy A: ffill() - 前向填充 (Forward Fill)，适用于股价缺失，沿用上一时刻价格
-update data set LastPx = ffill(LastPx)
+// 检查 bar_count 的分布
+select bar_count, count(*) as stock_count
+from bar_dist group by bar_count order by stock_count desc
 
-// Strategy B: nullFill() - 指定值填充 (Fill w/ Value)，适用于 Volume 缺失补 0
-update data set Volume = nullFill(Volume, 0)
+// ── Step 4: 异常值初筛 ──
+// 价格为0或负数的行
+print("\n=== 异常价格 (close <= 0) ===")
+bad_prices = select count(*) as cnt from t where close <= 0
+print(bad_prices)
 
-print("\n--- 修复后数据 (Check Clean) ---")
-null_check = exec count(*) from data where isNull(LastPx) or isNull(Volume)
-print("剩余 NULL 数量: " + null_check)
+// 成交量为负数
+print("\n=== 异常成交量 (vol < 0) ===")
+bad_vol = select count(*) as cnt from t where vol < 0
+print(bad_vol)
 
-// 5. 数据类型转换 (Type Conversion, Optional)
-// 有时候需要把 STRING 转为 SYMBOL (更高效) 或 INT 转 DOUBLE
-// update data set SecurityID = symbol(SecurityID)
+// ── Step 5: 数据填充示例 (在内存表上操作，不改原表) ──
+// 将单只股票单日数据加载到内存表进行清洗演示
+print("\n=== 清洗演示: 前向填充 pre_close ===")
+sample = select * from t where trade_date = checkDate, ts_code = "000153.SZ"
+
+// ffill: 前向填充（用前一个非NULL值填充后续NULL）
+update sample set pre_close = ffill(pre_close)
+
+// nullFill: 指定值填充（如成交量缺失补0）
+update sample set vol = nullFill(vol, 0)
+
+// 检查清洗效果
+print("清洗后 NULL 残留: ")
+select sum(iif(isNull(pre_close), 1, 0)) as remaining_null_pre_close,
+       sum(iif(isNull(vol), 1, 0)) as remaining_null_vol
+from sample

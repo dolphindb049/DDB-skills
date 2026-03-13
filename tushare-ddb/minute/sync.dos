@@ -1,0 +1,304 @@
+/**
+ * minute/sync.dos — 分钟频数据同步（历史回填 + 实时拉取 + 定时任务）
+ * ─────────────────────────────────────────────────────────────────
+ * 依赖: 先 source _common.dos, 再 source minute/schema.dos
+ *
+ * ┌─ 历史回填 ─────────────────────────────┐
+ * │ backfill(2026.03.12, 2026.03.12)       │  全 A（慢：逐票历史接口）
+ * │ backfill(2026.03.12, 2026.03.12,       │  指定票
+ * │          ["000001.SZ","600000.SH"])     │
+ * ├─ 实时拉取 ─────────────────────────────┤
+ * │ syncOnce()                             │  手动跑一轮
+ * ├─ 定时任务 ─────────────────────────────┤
+ * │ install()                              │  注册每日 9:30 循环
+ * │ uninstall()                            │  删除定时任务
+ * ├─ 诊断 ─────────────────────────────────┤
+ * │ status()                               │  总体概况
+ * │ check()                                │  今日每票完整率
+ * │ check(2026.03.10, 2026.03.13)          │  指定范围每票完整率
+ * └────────────────────────────────────────┘
+ */
+
+// ═══════════════════ 内部工具 ═══════════════════
+
+/**
+ * 拉取单只股票历史分钟线 (stk_mins, 最多 8000 行/次)
+ */
+def mFetchHist(tsCode, startStr, endStr){
+    s = minuteSchema()
+    p = dict(STRING, ANY)
+    p["ts_code"]    = tsCode
+    p["start_date"] = startStr
+    p["end_date"]   = endStr
+    p["freq"]       = "1min"
+    t = callTS("stk_mins", p, "")
+    if(size(t) == 0) return table(1:0, string(s["cols"]), s["types"])
+    tmp = select
+        symbol(ts_code) as ts_code,
+        date(temporalParse(string(trade_time), "yyyy-MM-dd HH:mm:ss")) as trade_date,
+        temporalParse(string(trade_time), "yyyy-MM-dd HH:mm:ss") as trade_time,
+        double(open) as open, double(high) as high,
+        double(low) as low,   double(close) as close,
+        double(vol) as vol,   double(amount) as amount,
+        double() as pre_close, double() as changeVal,
+        double() as pct_chg,  timestamp(now()) as update_time
+    from t
+    return select ts_code, trade_date, trade_time, open, high, low, close,
+                  vol, amount, pre_close, changeVal as change, pct_chg, update_time
+           from tmp
+}
+
+/**
+ * 拉取一批股票实时分钟线 (rt_min, 支持逗号分隔多码)
+ */
+def mFetchRT(tsCodes, freq){
+    s = minuteSchema()
+    p = dict(STRING, ANY)
+    p["ts_code"] = concat(tsCodes, ",")
+    p["freq"]    = freq
+    t = callTS("rt_min", p, "")
+    if(size(t) == 0) return table(1:0, string(s["cols"]), s["types"])
+    tmp = select
+        symbol(ts_code) as ts_code,
+        date(temporalParse(string(time), "yyyy-MM-dd HH:mm:ss")) as trade_date,
+        temporalParse(string(time), "yyyy-MM-dd HH:mm:ss") as trade_time,
+        double(open) as open, double(high) as high,
+        double(low) as low,   double(close) as close,
+        double(vol) as vol,   double(amount) as amount,
+        double() as pre_close, double() as changeVal,
+        double() as pct_chg,  timestamp(now()) as update_time
+    from t
+    return select ts_code, trade_date, trade_time, open, high, low, close,
+                  vol, amount, pre_close, changeVal as change, pct_chg, update_time
+           from tmp
+}
+
+/**
+ * 已有数据快照: dict("code|yyyyMMdd" -> barCount), 一次查完整个范围
+ */
+def mSnapshot(startDate, endDate){
+    s = minuteSchema()
+    snap = dict(STRING, INT)
+    if(!existsTable(s["db"], s["tb"])) return snap
+    t = loadTable(s["db"], s["tb"])
+    r = select ts_code, trade_date, count(*) as n
+        from t where trade_date >= startDate, trade_date <= endDate
+        group by ts_code, trade_date
+    if(size(r) == 0) return snap
+    for(i in 0..(size(r)-1)){
+        snap[r["ts_code"][i] + "|" + temporalFormat(r["trade_date"][i], "yyyyMMdd")] = r["n"][i]
+    }
+    return snap
+}
+
+/**
+ * 回填一只股票缺失日, 返回新增行数
+ */
+def mBackfillOne(tableObj, tsCode, tradeDays, snap, sleepMs, minBars){
+    todayDate = date(now())
+    miss = array(DATE, 0)
+    for(d in 0..(size(tradeDays)-1)){
+        bc = snap.find(tsCode + "|" + temporalFormat(tradeDays[d], "yyyyMMdd"))
+        // 今天: 只要不满 241 bar 就重拉 (stk_mins 返回截至当前的所有 bar, keepDuplicates=LAST 去重)
+        // 历史: 用传入的 minBars 阈值
+        threshold = iif(tradeDays[d] == todayDate, 241, minBars)
+        if(bc == NULL || bc < threshold) miss.append!(tradeDays[d])
+    }
+    if(size(miss) == 0) return 0
+    total = 0
+    chunkSz = 30
+    chunkN = int(ceil(double(size(miss)) / chunkSz))
+    for(c in 0..(chunkN-1)){
+        si = c * chunkSz
+        ei = min((c+1) * chunkSz, size(miss)) - 1
+        raw = mFetchHist(tsCode, temporalFormat(miss[si], "yyyyMMdd"), temporalFormat(miss[ei], "yyyyMMdd"))
+        sleep(sleepMs)
+        if(size(raw) == 0) continue
+        raw = select * from raw where trade_date in miss[si:(ei+1)]
+        if(size(raw) > 0){
+            tableObj.append!(raw)
+            total += size(raw)
+        }
+    }
+    return total
+}
+
+// ═══════════════════ 历史回填 ═══════════════════
+
+/**
+ * 回填 [startDate, endDate] 全 A 或指定票的分钟线。
+ * @param codes  可选, 股票代码数组; 不传则自动拉全 A
+ * @param sleepMs 限速 (默认 200ms ≈ 300次/分)
+ */
+def backfill(startDate, endDate, codes=NULL, sleepMs=50, minBars=200){
+    t0 = now()
+    tableObj = ensureMinuteDB()
+    if(isVoid(codes)){
+        stockList = tsGetSymbols()
+    } else {
+        stockList = codes
+    }
+    n = size(stockList)
+    writeLog("[backfill] " + string(startDate) + "~" + string(endDate) + " stocks=" + string(n))
+
+    tradeDays = tsGetTradeDays(startDate, endDate)
+    if(size(tradeDays) == 0){ print("No trading days."); return }
+
+    snap = mSnapshot(startDate, endDate)
+    print("Days: " + string(size(tradeDays)) + " | Stocks: " + string(n) + " | Existing: " + string(size(snap)))
+    minWaitSec = double(n * sleepMs) / 1000.0
+    print("[backfill] Historical API is per-stock. Minimum throttle time ~= " + format(minWaitSec, "0.0") + "s before network/db time.")
+
+    newTotal = 0; skipped = 0; errors = 0
+    step = max(1, n / 20)
+    for(i in 0..(n-1)){
+        try{
+            added = mBackfillOne(tableObj, stockList[i], tradeDays, snap, sleepMs, minBars)
+            newTotal += added
+            if(added == 0) skipped += 1
+        } catch(ex){
+            errors += 1
+            writeLog("[backfill] ERR " + stockList[i] + ": " + string(ex))
+        }
+        done = i + 1
+        if(done % step == 0 || done == n){
+            sec = double(now() - t0) / 1000.0
+            spd = iif(sec > 0, double(done) / sec, 0.0)
+            eta = iif(spd > 0, double(n - done) / spd, 0.0)
+            print("[backfill] " + string(done) + "/" + string(n) +
+                  " (" + string(int(double(done)/n*100)) + "%) new=" + string(newTotal) +
+                  " skip=" + string(skipped) + " err=" + string(errors) +
+                  " | " + format(sec,"0.1") + "s | ETA " + format(eta,"0.0") + "s")
+        }
+    }
+    sec = double(now() - t0) / 1000.0
+    print("[backfill] Done: new=" + string(newTotal) + " skip=" + string(skipped) +
+          " err=" + string(errors) + " | " + format(sec,"0.1") + "s")
+}
+
+// ═══════════════════ 实时同步 ═══════════════════
+
+/**
+ * 盘中全量拉取分钟线 (rt_min), 直接覆盖写入。
+ * keepDuplicates=LAST 保证重复数据自动取最新值, 不会产生重复行。
+ * 每轮拉全量而非增量, 避免中间断了导致缺口。
+ */
+def syncOnce(){
+    s = minuteSchema()
+    t0 = now()
+    tableObj = ensureMinuteDB()
+
+    symbols = tsGetSymbols()
+    if(size(symbols) == 0){ writeLog("[sync] No symbols"); return }
+
+    batchSz = 1000
+    totalNew = 0
+    batchN = int(ceil(double(size(symbols)) / batchSz))
+    for(b in 0..(batchN-1)){
+        si = b * batchSz
+        ei = min((b+1) * batchSz, size(symbols))
+        raw = mFetchRT(symbols[si:ei], "1MIN")
+        if(size(raw) == 0) continue
+        tableObj.append!(raw)
+        totalNew += size(raw)
+        writeLog("[sync] batch " + string(b+1) + "/" + string(batchN) + " rows=" + string(size(raw)))
+    }
+    sec = double(now() - t0) / 1000.0
+    writeLog("[sync] Done: rows=" + string(totalNew) + " " + format(sec,"0.1") + "s")
+}
+
+// ═══════════════════ 定时任务 ═══════════════════
+
+def mSyncLoop(){
+    writeLog("[sync] Loop started on " + getNodeAlias())
+    do{
+        t = time(now())
+        if((t >= 09:30:00.000 && t <= 11:31:00.000) || (t >= 13:00:00.000 && t <= 15:01:00.000)){
+            try{ syncOnce() } catch(ex){ writeLog("[sync] " + string(ex)) }
+        }
+        sleep(60000)
+    } while(time(now()) <= 15:05:00.000)
+    // 用 stk_mins 补昨天的缺口 (当天的 stk_mins 还没出, T+1 才有)
+    yesterday = datetimeAdd(today(), -1, "d")
+    writeLog("[sync] Post-market: repair yesterday (" + string(yesterday) + ")")
+    try{
+        backfill(yesterday, yesterday)
+    } catch(ex){
+        writeLog("[sync] Post-market repair error: " + string(ex))
+    }
+    writeLog("[sync] Loop done for today.")
+}
+
+def install(){
+    id = "ts_minute_sync"
+    try{ deleteScheduledJob(id) } catch(ex){}
+    scheduleJob(id, "Tushare minute sync loop", mSyncLoop, 09:30m, today(), 2099.12.31, "D")
+    print("Installed: " + id + " (daily 9:30-15:05, with post-market repair)")
+    // 立即在后台启动今天的循环，不等明天
+    submitJob("ts_minute_now", "Tushare minute sync - immediate", mSyncLoop)
+    print("Started immediately for today. Check: getRecentJobs()")
+}
+
+def uninstall(){
+    id = "ts_minute_sync"
+    try{ deleteScheduledJob(id); print("Removed: " + id) } catch(ex){ print("Nothing to remove.") }
+}
+
+// ═══════════════════ 诊断 ═══════════════════
+
+def status(){
+    s = minuteSchema()
+    today = date(now())
+    print("=== Minute Bar Status ===")
+    if(!existsTable(s["db"], s["tb"])){
+        print("Table:          NOT CREATED")
+        jobs = select * from getScheduledJobs() where jobId = "ts_minute_sync"
+        print("Schedule:       " + iif(size(jobs) > 0, "ACTIVE", "NOT INSTALLED"))
+        return
+    }
+    t = loadTable(s["db"], s["tb"])
+    print("Total rows:     " + string(exec count(*) from t))
+    print("Today rows:     " + string(exec count(*) from t where trade_date = today))
+    print("Today symbols:  " + string(exec nunique(ts_code) from t where trade_date = today))
+    print("Today max_time: " + string(exec max(trade_time) from t where trade_date = today))
+    jobs = select * from getScheduledJobs() where jobId = "ts_minute_sync"
+    print("Schedule: " + iif(size(jobs) > 0, "ACTIVE", "NOT INSTALLED"))
+}
+
+/**
+ * 每只股票的完整率一览。按完整率升序, 有问题的排最前面。
+ *   check()                    → 今日
+ *   check(2026.03.10, 2026.03.13) → 指定范围
+ * 列: ts_code | first_bar | last_bar | bars(实际) | expected(理论) | pct(完整率%)
+ * 看到 pct < 100 的, backfill(startDate, endDate, ["xxxx.SZ"]) 补一下就行。
+ */
+def check(startDate=NULL, endDate=NULL){
+    s = minuteSchema()
+    if(!existsTable(s["db"], s["tb"])){
+        print("Table not found. Run ensureMinuteDB() first.")
+        return table(1:0, `ts_code`first_bar`last_bar`bars`expected`pct, [SYMBOL, TIMESTAMP, TIMESTAMP, LONG, INT, DOUBLE])
+    }
+    if(isVoid(startDate)){
+        sd = date(now())
+    } else {
+        sd = startDate
+    }
+    if(isVoid(endDate)){
+        ed = sd
+    } else {
+        ed = endDate
+    }
+    tradeDays = tsGetTradeDays(sd, ed)
+    nDays = size(tradeDays)
+    if(nDays == 0){ print("No trading days in range."); return }
+    expectedBars = nDays * 241
+    return select ts_code,
+                  min(trade_time) as first_bar,
+                  max(trade_time) as last_bar,
+                  count(*) as bars,
+                  expectedBars as expected,
+                  double(count(*)) / expectedBars * 100 as pct
+           from loadTable(s["db"], s["tb"])
+           where trade_date >= sd, trade_date <= ed
+           group by ts_code order by pct asc
+}
