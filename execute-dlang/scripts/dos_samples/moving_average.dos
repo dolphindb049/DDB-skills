@@ -1,7 +1,7 @@
 // scripts/dos_samples/moving_average.dos
 // A simple script to demonstrate moving averages
 
-login("admin", "123456")
+// If your session is not already authenticated, run login("<USER>", "<PASSWORD>") first.
 
 n = 100
 t = table(1..n as id, rand(100.0, n) as price)

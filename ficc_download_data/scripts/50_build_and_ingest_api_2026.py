@@ -1,4 +1,4 @@
-#!/home/jrzhang/miniconda3/bin/python3
+#!/usr/bin/env python3
 """
 FICC API 数据下载与入库（可复用版）
 
@@ -29,14 +29,22 @@ import dolphindb as ddb
 import pandas as pd
 import requests
 
+
+def require_env(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise SystemExit(f"Missing required env var: {name}")
+    return value
+
+
 BASE_URL = "https://api.datayes.com/data/v1"
-TOKEN = os.getenv("DATAYES_TOKEN", "4c89993d518c6cb4105870590b923416ecc61d0da7b438f6ace0bb036040a7c4")
-DDB_HOST = os.getenv("DDB_HOST", "192.168.100.43")
-DDB_PORT = int(os.getenv("DDB_PORT", "7731"))
-DDB_USER = os.getenv("DDB_USER", "admin")
-DDB_PASSWORD = os.getenv("DDB_PASSWORD", "123456")
+TOKEN = require_env("DATAYES_TOKEN")
+DDB_HOST = require_env("DDB_HOST")
+DDB_PORT = int(require_env("DDB_PORT"))
+DDB_USER = require_env("DDB_USER")
+DDB_PASSWORD = require_env("DDB_PASSWORD")
 DB_PATH = os.getenv("DDB_DB_PATH", "dfs://ficc_api_pdf_2026")
-OUT_DIR = Path(os.getenv("OUT_DIR", "/hdd/hdd9/jrzhang/data/ficc_api_2026"))
+OUT_DIR = Path(os.getenv("OUT_DIR", str(Path(__file__).resolve().parents[1] / "output")))
 TARGET_YEAR = int(os.getenv("TARGET_YEAR", "2026"))
 MATURITY_YEAR = int(os.getenv("MATURITY_YEAR", "2026"))
 MATURITY_YEARS_RAW = os.getenv("MATURITY_YEARS", "").strip()

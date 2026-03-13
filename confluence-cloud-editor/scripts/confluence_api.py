@@ -2,7 +2,9 @@
 import argparse
 import base64
 import html
+import html
 import json
+import mimetypes
 import mimetypes
 import os
 import re
@@ -11,6 +13,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -84,6 +87,10 @@ class ConfluenceClient:
         params = urllib.parse.urlencode({"expand": "body.storage,version,title,type,space"})
         return self._request("GET", f"/rest/api/content/{page_id}?{params}")
 
+    def get_page_with_meta(self, page_id: str):
+        params = urllib.parse.urlencode({"expand": "body.storage,version,title,type,space"})
+        return self._request("GET", f"/rest/api/content/{page_id}?{params}")
+
     def list_children(self, page_id: str, recursive: bool = False):
         queue = [page_id]
         seen = set()
@@ -135,6 +142,58 @@ class ConfluenceClient:
 
     def delete_content(self, content_id: str):
         return self._request("DELETE", f"/rest/api/content/{content_id}")
+
+    def create_page_storage(
+        self, title: str, space_key: str, storage_value: str, parent_id: str = ""
+    ):
+        payload = {
+            "type": "page",
+            "title": title,
+            "space": {"key": space_key},
+            "body": {
+                "storage": {
+                    "value": storage_value,
+                    "representation": "storage",
+                }
+            },
+        }
+        if parent_id:
+            payload["ancestors"] = [{"id": parent_id}]
+        return self._request("POST", "/rest/api/content", payload=payload)
+
+    def upload_attachment(self, page_id: str, file_path: Path):
+        url = f"{self.base_url}/rest/api/content/{page_id}/child/attachment"
+        content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+        boundary = "----ConfluenceBoundary" + uuid.uuid4().hex
+
+        head = (
+            f"--{boundary}\r\n"
+            f"Content-Disposition: form-data; name=\"file\"; filename=\"{file_path.name}\"\r\n"
+            f"Content-Type: {content_type}\r\n\r\n"
+        ).encode("utf-8")
+        tail = f"\r\n--{boundary}--\r\n".encode("utf-8")
+        body = head + file_path.read_bytes() + tail
+
+        req = urllib.request.Request(url, data=body, method="POST")
+        req.add_header("Authorization", self.auth_header)
+        req.add_header("Accept", "application/json")
+        req.add_header("X-Atlassian-Token", "no-check")
+        req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                raw = resp.read().decode("utf-8")
+                return json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            if exc.code == 400 and "same file name as an existing attachment" in detail:
+                return {
+                    "skipped": True,
+                    "reason": "duplicate_filename",
+                    "filename": file_path.name,
+                }
+            raise SystemExit(
+                f"Attachment upload failed for {file_path}: HTTP {exc.code} {detail}"
+            ) from exc
 
     def create_page_storage(
         self, title: str, space_key: str, storage_value: str, parent_id: str = ""
@@ -865,6 +924,102 @@ def cmd_publish_md_page(client: ConfluenceClient, args):
     )
 
 
+def cmd_publish_md_page(client: ConfluenceClient, args):
+    md_path = Path(args.md_file)
+    if not md_path.exists():
+        raise SystemExit(f"Markdown file not found: {md_path}")
+
+    md_text = md_path.read_text(encoding="utf-8")
+    storage_html, attachment_paths = markdown_to_storage_html(
+        md_text=md_text,
+        md_base_dir=md_path.parent,
+        image_width=args.image_width,
+    )
+
+    if args.page_id:
+        page = client.get_page_with_meta(args.page_id)
+        title = args.title if args.title else page.get("title", "")
+        payload = {
+            "id": args.page_id,
+            "type": page.get("type", "page"),
+            "title": title,
+            "version": {"number": int(page.get("version", {}).get("number", 1)) + 1},
+            "body": {"storage": {"value": storage_html, "representation": "storage"}},
+        }
+        if args.parent_id:
+            payload["ancestors"] = [{"id": args.parent_id}]
+        if args.space_key:
+            payload["space"] = {"key": args.space_key}
+        target = (
+            json.dumps(
+                {
+                    "mode": "update",
+                    "page_id": args.page_id,
+                    "title": title,
+                    "attachments": [str(p) for p in attachment_paths],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            if args.dry_run
+            else client._request("PUT", f"/rest/api/content/{args.page_id}", payload=payload)
+        )
+    else:
+        if not args.title or not args.space_key:
+            raise SystemExit("Create mode requires --title and --space-key when --page-id is omitted.")
+        target = (
+            json.dumps(
+                {
+                    "mode": "create",
+                    "title": args.title,
+                    "space_key": args.space_key,
+                    "parent_id": args.parent_id,
+                    "attachments": [str(p) for p in attachment_paths],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            if args.dry_run
+            else client.create_page_storage(
+                title=args.title,
+                space_key=args.space_key,
+                storage_value=storage_html,
+                parent_id=args.parent_id,
+            )
+        )
+
+    if args.dry_run:
+        print(target)
+        return
+
+    page_id = target.get("id", "")
+    uploaded = []
+    for file_path in attachment_paths:
+        data = client.upload_attachment(page_id=page_id, file_path=file_path)
+        uploaded.append(
+            {
+                "file": str(file_path),
+                "count": len(data.get("results", [])),
+                "skipped": bool(data.get("skipped", False)),
+                "reason": data.get("reason", ""),
+            }
+        )
+
+    print(
+        json.dumps(
+            {
+                "published": True,
+                "page_id": page_id,
+                "title": target.get("title"),
+                "webui": webui_to_url(client.base_url, target.get("_links", {}).get("webui", "")),
+                "attachment_uploads": uploaded,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="Confluence Cloud API helper")
     parser.add_argument(
@@ -962,6 +1117,26 @@ def build_parser():
     p_publish.add_argument("--image-width", type=int, default=900, help="Default image width")
     p_publish.add_argument("--dry-run", action="store_true")
 
+    p_publish = sub.add_parser(
+        "publish-md-page",
+        help="Create/update a Confluence page from Markdown with auto-links and image attachments",
+    )
+    p_publish.add_argument("--md-file", required=True, help="Markdown file path")
+    p_publish.add_argument(
+        "--page-id",
+        default="",
+        help="Update existing page ID (omit for create mode)",
+    )
+    p_publish.add_argument("--title", default="", help="Page title (required in create mode)")
+    p_publish.add_argument(
+        "--space-key",
+        default="",
+        help="Confluence space key (required in create mode)",
+    )
+    p_publish.add_argument("--parent-id", default="", help="Optional parent page ID")
+    p_publish.add_argument("--image-width", type=int, default=900, help="Default image width")
+    p_publish.add_argument("--dry-run", action="store_true")
+
     return parser
 
 
@@ -990,6 +1165,7 @@ def main():
         "list-comments": cmd_list_comments,
         "delete-comment": cmd_delete_comment,
         "export-pages-md": cmd_export_pages_md,
+        "publish-md-page": cmd_publish_md_page,
         "publish-md-page": cmd_publish_md_page,
     }
     commands[args.command](client, args)

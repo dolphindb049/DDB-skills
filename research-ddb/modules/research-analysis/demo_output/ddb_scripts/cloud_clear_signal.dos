@@ -1,4 +1,0 @@
-src=loadTable("dfs://stock_daily","stock_daily_prev");
-res=select ts_code as securityid,trade_date,0.0 as factor_value from src;
-res=select securityid,trade_date,`cloud_clear_signal as factor_name,factor_value from res;
-res

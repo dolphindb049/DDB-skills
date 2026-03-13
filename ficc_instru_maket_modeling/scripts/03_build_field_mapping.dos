@@ -3,7 +3,7 @@ curveRawDbPath = "dfs://ficc_curve_raw_2026"
 instDbPath = "dfs://instrument_std"
 mdDbPath = "dfs://marketdata_std"
 
-run("/hdd/hdd9/jrzhang/.github/skills/ficc_instru_maket_modeling/scripts/03_mapping_logic_registry.dos")
+run("scripts/03_mapping_logic_registry.dos")
 
 instMapTb = loadTable(rawDbPath, "std_field_mapping_instrument")
 mdMapTb = loadTable(curveRawDbPath, "std_field_mapping_marketdata")

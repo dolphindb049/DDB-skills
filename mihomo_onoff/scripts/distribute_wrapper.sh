@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Copy local wrapper to remote hosts with interactive password prompt (no sshpass required)
 # Example:
-#   ./distribute_wrapper.sh ~/.local/bin/mihomo jrzhang@192.168.100.43 jrzhang@192.168.100.45
+#   ./distribute_wrapper.sh ~/.local/bin/mihomo user1@host1 user2@host2
 
 SRC_SCRIPT="${1:-$HOME/.local/bin/mihomo}"
 shift || true
