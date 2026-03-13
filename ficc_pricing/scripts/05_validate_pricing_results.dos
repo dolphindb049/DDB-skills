@@ -1,0 +1,70 @@
+// 05_validate_pricing_results.dos
+// 输入: pricingDate, outputDbPath, outputTablePrefix
+// 输出: 共享表 pricing_validation_report + 落表 validation summary
+
+if(!exists("pricingDate")) pricingDate = 2026.03.04
+if(!exists("outputDbPath")) outputDbPath = "dfs://ficc_pricing_pipeline"
+if(!exists("outputTablePrefix")) outputTablePrefix = "pricing"
+if(!exists("toleranceBp")) toleranceBp = 0.05
+
+priceTable = outputTablePrefix + "_price_result"
+runTable = outputTablePrefix + "_run_summary"
+validationTable = outputTablePrefix + "_validation_summary"
+failureTable = outputTablePrefix + "_failure_detail"
+
+if(!(existsDatabase(outputDbPath) && existsTable(outputDbPath, priceTable) && existsTable(outputDbPath, runTable) && existsTable(outputDbPath, validationTable) && existsTable(outputDbPath, failureTable))){
+    throw "output schema not ready"
+}
+
+priceTb = loadTable(outputDbPath, priceTable)
+runTb = loadTable(outputDbPath, runTable)
+valTb = loadTable(outputDbPath, validationTable)
+failureTb = loadTable(outputDbPath, failureTable)
+
+pDate = pricingDate
+delete from valTb where pricingDate = pDate
+
+runs = select * from runTb where pricingDate = pDate
+
+report = table(2000:0,
+    `pricingDate`profileName`metric`value`status`detail`checkTime,
+    [DATE,STRING,STRING,DOUBLE,STRING,STRING,TIMESTAMP]
+)
+
+for(i in 0..(size(runs)-1)){
+    profile = runs.profileName[i]
+    total = runs.totalBonds[i]
+    priced = runs.pricedBonds[i]
+    failed = runs.failedBonds[i]
+
+    p = select * from priceTb where pricingDate = pDate, profileName = profile
+    errCnt = (exec count(*) from p where status = "Unpriced(Fail)")[0]
+    f = select * from failureTb where pricingDate = pDate, profileName = profile
+    fCnt = size(f)
+
+    tableInsert(report, pricingDate, profile, "total_bonds", double(total), "INFO", "from run summary", now())
+    tableInsert(report, pricingDate, profile, "priced_bonds", double(priced), iif(priced>0,"OK","WARN"), "priced records", now())
+    tableInsert(report, pricingDate, profile, "failed_bonds", double(failed), iif(failed==0,"OK","WARN"), "engine failed records", now())
+    tableInsert(report, pricingDate, profile, "error_rows", double(errCnt), iif(errCnt==0,"OK","WARN"), "status=Unpriced(Fail)", now())
+    tableInsert(report, pricingDate, profile, "failure_detail_rows", double(fCnt), iif(fCnt>0,"OK","WARN"), "rows in failure_detail table", now())
+
+    if(fCnt>0){
+        topFail = select top 3 reason, count(*) as cnt from f group by reason order by cnt desc
+        for(k in 0..(size(topFail)-1)){
+            tableInsert(report, pricingDate, profile, "top_failure_" + string(k+1), double(topFail.cnt[k]), "INFO", string(topFail.reason[k]), now())
+        }
+    }
+
+    // 外部估值对齐说明：本技能默认不强绑外部估值表，若无对照数据则输出缺失提示
+    tableInsert(report, pricingDate, profile, "cfets_compare_coverage", 0.0, "WARN", "未检测到已接入的外部CFETS估值对照表，跳过bp误差校验", now())
+    tableInsert(report, pricingDate, profile, "bp_tolerance", toleranceBp, "INFO", "阈值(abs(diffBp) < toleranceBp)", now())
+}
+
+append!(valTb, report)
+
+if(exists("pricing_validation_report")){
+    undef("pricing_validation_report", SHARED)
+}
+share(report, `pricing_validation_report)
+
+select * from pricing_validation_report order by profileName, metric

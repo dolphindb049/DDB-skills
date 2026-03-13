@@ -1,0 +1,61 @@
+rawDbPath = "dfs://ficc_api_pdf_2026"
+curveRawDbPath = "dfs://ficc_curve_raw_2026"
+instDbPath = "dfs://instrument_std"
+mdDbPath = "dfs://marketdata_std"
+
+mapping_instrument_rows = table(
+    1:0,
+    `mappingId`sourceDbPath`sourceTable`targetDbPath`targetTable`targetField`fieldOrder`isObjectField`mappingCode`requiredLevel`comment,
+    [STRING,STRING,STRING,STRING,STRING,STRING,INT,BOOL,STRING,STRING,STRING]
+)
+
+tableInsert(mapping_instrument_rows,"I001",rawDbPath,"api_getBond",instDbPath,"Instrument","bondType",1,false,"iif(string(couponTypeCD)==\"ZERO\",\"DiscountBond\",iif(string(couponTypeCD)==\"FIXED\",\"FixedRateBond\",\"ZeroCouponBond\"))","必填","债券类型")
+tableInsert(mapping_instrument_rows,"I002",rawDbPath,"api_getBond",instDbPath,"Instrument","productType",2,false,"\"Cash\"","必填","产品类型")
+tableInsert(mapping_instrument_rows,"I003",rawDbPath,"api_getBond",instDbPath,"Instrument","assetType",3,false,"\"Bond\"","必填","资产类型")
+tableInsert(mapping_instrument_rows,"I004",rawDbPath,"api_getBond",instDbPath,"Instrument","version",4,false,"0","必填","版本号")
+tableInsert(mapping_instrument_rows,"I005",rawDbPath,"api_getBond",instDbPath,"Instrument","instrumentId",5,false,"string(secID)","必填","资产ID")
+tableInsert(mapping_instrument_rows,"I006",rawDbPath,"api_getBond",instDbPath,"Instrument","start",6,false,"date(firstAccrDate)","必填","起息日")
+tableInsert(mapping_instrument_rows,"I007",rawDbPath,"api_getBond",instDbPath,"Instrument","maturity",7,false,"date(maturityDate)","必填","到期日")
+tableInsert(mapping_instrument_rows,"I008",rawDbPath,"api_getBond",instDbPath,"Instrument","issuePrice",8,false,"iif(string(couponTypeCD)==\"ZERO\",100.0,double(NULL))","条件必填","发行价")
+tableInsert(mapping_instrument_rows,"I009",rawDbPath,"api_getBond",instDbPath,"Instrument","coupon",9,false,"double(coupon)/100.0","条件必填","票息")
+tableInsert(mapping_instrument_rows,"I010",rawDbPath,"api_getBond",instDbPath,"Instrument","calendar",10,false,"\"CFET\"","必填","交易日历")
+tableInsert(mapping_instrument_rows,"I011",rawDbPath,"api_getBond",instDbPath,"Instrument","frequency",11,false,"iif(string(cpnFreqCD)==\"MAT\",\"Once\",iif(string(cpnFreqCD)==\"1PY\",\"Annual\",iif(string(cpnFreqCD)==\"2PY\",\"Semiannual\",iif(string(cpnFreqCD)==\"4PY\",\"Quarterly\",\"Annual\"))))","条件必填","付息频率")
+tableInsert(mapping_instrument_rows,"I012",rawDbPath,"api_getBond",instDbPath,"Instrument","dayCountConvention",12,false,"\"ActualActualISDA\"","必填","日计数规则")
+tableInsert(mapping_instrument_rows,"I013",rawDbPath,"api_getBond",instDbPath,"Instrument","subType",13,false,"iif(like(string(typeName),\"%国债%\"),\"TREASURY_BOND\",iif(like(string(typeName),\"%央票%\") or like(string(typeName),\"%央行票据%\"),\"CENTRAL_BANK_BILL\",iif(like(string(typeName),\"%国开%\"),\"CDB_BOND\",iif(like(string(typeName),\"%进出口%\"),\"EIBC_BOND\",iif(like(string(typeName),\"%农发行%\"),\"ADBC_BOND\",iif(like(string(typeName),\"%中期票据%\"),\"MTN\",iif(like(string(typeName),\"%短期融资券%\"),\"SHORT_FIN_BOND\",iif(like(string(typeName),\"%同业存单%\"),\"NCD\",\"CORP_BOND\"))))))))","可选","债券子类型")
+tableInsert(mapping_instrument_rows,"I014",rawDbPath,"api_getBond",instDbPath,"Instrument","creditRating",14,false,"iif(like(string(typeName),\"%(超AAA)%\"),\"AAA\",iif(like(string(typeName),\"%(AAA+)%\"),\"AAA+\",iif(like(string(typeName),\"%(AAA-)%\"),\"AAA-\",iif(like(string(typeName),\"%(AAA)%\"),\"AAA\",iif(like(string(typeName),\"%(AA+)%\"),\"AA+\",iif(like(string(typeName),\"%(AA-)%\"),\"AA-\",iif(like(string(typeName),\"%(AA)%\"),\"AA\",iif(like(string(typeName),\"%(A+)%\"),\"A+\",iif(like(string(typeName),\"%(A-)%\"),\"A-\",iif(like(string(typeName),\"%(A)%\"),\"A\",iif(like(string(typeName),\"%(BBB+)%\"),\"BBB+\",iif(like(string(typeName),\"%(BBB-)%\"),\"BBB-\",iif(like(string(typeName),\"%(BBB)%\"),\"BBB\",string(NULL))))))))))))))","可选","信用评级")
+tableInsert(mapping_instrument_rows,"I015",rawDbPath,"api_getBond",instDbPath,"Instrument","discountCurve",15,false,"string(NULL)","可选","折现曲线（在转换脚本按currency+subType+creditRating回填）")
+tableInsert(mapping_instrument_rows,"I016",rawDbPath,"api_getBond",instDbPath,"Instrument","issuer",16,false,"string(issuer)","可选","发行人")
+tableInsert(mapping_instrument_rows,"I017",rawDbPath,"api_getBond",instDbPath,"Instrument","currency",17,false,"iif(isNull(currencyCD) or trim(string(currencyCD))==\"\",\"CNY\",string(currencyCD))","必填","币种")
+tableInsert(mapping_instrument_rows,"I018",rawDbPath,"api_getBond",instDbPath,"Instrument","nominal",18,false,"iif(isNull(par),100.0,double(par))","可选","面值")
+tableInsert(mapping_instrument_rows,"I019",rawDbPath,"api_getBond",instDbPath,"Instrument","instrument",19,true,"parseInstrument(dict(`productType`assetType`bondType`version`instrumentId`start`maturity`issuePrice`coupon`calendar`frequency`dayCountConvention`subType`creditRating`discountCurve`issuer`currency`nominal,[productType,assetType,bondType,version,instrumentId,start,maturity,issuePrice,coupon,calendar,frequency,dayCountConvention,subType,creditRating,discountCurve,issuer,currency,nominal]))","必填","INSTRUMENT对象")
+tableInsert(mapping_instrument_rows,"I020",rawDbPath,"api_getBond",instDbPath,"Instrument","isRegular",20,false,"true","可选","规则资产标记")
+tableInsert(mapping_instrument_rows,"I021",rawDbPath,"api_getBond",instDbPath,"Instrument","instrumentName",21,false,"string(secShortName)","可选","资产名")
+tableInsert(mapping_instrument_rows,"I022",rawDbPath,"api_getBond",instDbPath,"Instrument","listingDate",22,false,"date(listDate)","可选","挂牌日")
+tableInsert(mapping_instrument_rows,"I023",rawDbPath,"api_getBond",instDbPath,"Instrument","market",23,false,"iif(isNull(exchangeCD) or trim(string(exchangeCD))==\"\",\"XIBE\",string(exchangeCD))","可选","市场")
+tableInsert(mapping_instrument_rows,"I024",rawDbPath,"api_getBond",instDbPath,"Instrument","sourceDbPath",24,false,"\"dfs://ficc_api_pdf_2026\"","必填","来源库")
+tableInsert(mapping_instrument_rows,"I025",rawDbPath,"api_getBond",instDbPath,"Instrument","sourceTable",25,false,"\"api_getBond\"","必填","来源表")
+tableInsert(mapping_instrument_rows,"I026",rawDbPath,"api_getBond",instDbPath,"Instrument","updateTime",26,false,"now()","必填","更新时间")
+
+mapping_marketdata_rows = table(
+    1:0,
+    `mappingId`sourceDbPath`sourceTable`targetDbPath`targetTable`targetField`fieldOrder`isObjectField`mappingCode`requiredLevel`comment,
+    [STRING,STRING,STRING,STRING,STRING,STRING,INT,BOOL,STRING,STRING,STRING]
+)
+
+tableInsert(mapping_marketdata_rows,"C001",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","referenceDate",1,false,"date(referenceDate)","必填","参考日期")
+tableInsert(mapping_marketdata_rows,"C002",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","name",2,false,"string(name)","必填","市场数据名称（保留原始）")
+tableInsert(mapping_marketdata_rows,"C003",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","mktDataType",3,false,"\"Curve\"","必填","市场数据类型")
+tableInsert(mapping_marketdata_rows,"C004",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","curveType",4,false,"\"IrYieldCurve\"","必填","曲线类型")
+tableInsert(mapping_marketdata_rows,"C005",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","dayCountConvention",5,false,"\"Actual365\"","必填","日计数")
+tableInsert(mapping_marketdata_rows,"C006",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","compounding",6,false,"\"Continuous\"","必填","复利")
+tableInsert(mapping_marketdata_rows,"C007",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","frequency",7,false,"\"Annual\"","必填","频率")
+tableInsert(mapping_marketdata_rows,"C008",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","interpMethod",8,false,"\"Linear\"","必填","插值")
+tableInsert(mapping_marketdata_rows,"C009",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","extrapMethod",9,false,"\"Flat\"","必填","外推")
+tableInsert(mapping_marketdata_rows,"C010",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","curveName",10,false,"\"CNY_\" + string(subType) + iif(isNull(creditRating) or trim(string(creditRating))==\"\",\"\",\"_\" + string(creditRating))","必填","标准曲线名")
+tableInsert(mapping_marketdata_rows,"C011",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","currency",11,false,"\"CNY\"","必填","币种")
+tableInsert(mapping_marketdata_rows,"C012",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","nodeDates",12,false,"string(nodeDatesVec)","必填","节点日列表")
+tableInsert(mapping_marketdata_rows,"C013",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","nodeValues",13,false,"string(nodeValuesVec)","必填","节点值列表")
+tableInsert(mapping_marketdata_rows,"C014",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","data",14,true,"parseMktData(dict(`mktDataType`curveType`referenceDate`dayCountConvention`compounding`frequency`interpMethod`extrapMethod`dates`values`curveName`currency,[mktDataType,curveType,referenceDate,dayCountConvention,compounding,frequency,interpMethod,extrapMethod,nodeDatesVec,nodeValuesVec,curveName,currency]))","必填","MKTDATA对象")
+tableInsert(mapping_marketdata_rows,"C015",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","sourceDbPath",15,false,"\"dfs://ficc_curve_raw_2026\"","必填","来源库")
+tableInsert(mapping_marketdata_rows,"C016",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","sourceTable",16,false,"\"curve_shch_yield_raw\"","必填","来源表")
+tableInsert(mapping_marketdata_rows,"C017",curveRawDbPath,"curve_shch_yield_raw",mdDbPath,"MarketData","updateTime",17,false,"now()","必填","更新时间")

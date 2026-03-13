@@ -1,5 +1,6 @@
 #!/bin/bash
 # scripts/patch_single_scripts.sh
+# 单节点补丁脚本（single mode only）
 # 仅对已解压目录执行修复：先改 cfg，再改二进制名，再改 startSingle/stopSingle
 # 用法：
 # ./patch_single_scripts.sh <SERVER_DIR> <BIN_TAG> <LOCAL_IP> <PORT>

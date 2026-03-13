@@ -40,7 +40,7 @@ metadata:
 - `DDB_DB_PATH`（默认 `dfs://ficc_curve_raw_2026`）
 - `CURVE_DIR`（默认 `.github/skills/ficc_curve_fitting_import/curve`）
 - `CSV_ENCODING`（默认 `gb18030`）
-- `OUT_DIR`（默认 `/hdd/hdd9/jrzhang/data/ficc_curve_raw_2026`）
+- `OUT_DIR`（默认 `.github/skills/ficc_curve_fitting_import/output`）
 
 ## 输出产物
 

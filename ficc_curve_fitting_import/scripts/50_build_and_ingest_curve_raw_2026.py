@@ -1,4 +1,4 @@
-#!/home/jrzhang/miniconda3/bin/python3
+#!/usr/bin/env python3
 """
 SHCH 曲线原始数据入库主流程。
 
@@ -20,13 +20,21 @@ from typing import Any
 import dolphindb as ddb
 import pandas as pd
 
-DDB_HOST = os.getenv("DDB_HOST", "192.168.100.43")
-DDB_PORT = int(os.getenv("DDB_PORT", "7731"))
-DDB_USER = os.getenv("DDB_USER", "admin")
-DDB_PASSWORD = os.getenv("DDB_PASSWORD", "123456")
+
+def require_env(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise SystemExit(f"Missing required env var: {name}")
+    return value
+
+
+DDB_HOST = require_env("DDB_HOST")
+DDB_PORT = int(require_env("DDB_PORT"))
+DDB_USER = require_env("DDB_USER")
+DDB_PASSWORD = require_env("DDB_PASSWORD")
 DB_PATH = os.getenv("DDB_DB_PATH", "dfs://ficc_curve_raw_2026")
 CURVE_DIR = Path(os.getenv("CURVE_DIR", str(Path(__file__).resolve().parents[1] / "curve")))
-OUT_DIR = Path(os.getenv("OUT_DIR", "/hdd/hdd9/jrzhang/data/ficc_curve_raw_2026"))
+OUT_DIR = Path(os.getenv("OUT_DIR", str(Path(__file__).resolve().parents[1] / "output")))
 CSV_ENCODING = os.getenv("CSV_ENCODING", "gb18030")
 SCHEMA_DOS = Path(__file__).resolve().parent / "30_create_curve_raw_schema.dos"
 

@@ -1,22 +1,38 @@
-# python 编译文件
-__pycache__/
-*.py[cod]
+# 默认忽略 skills 下所有内容（白名单模式）
+*
 
-# 虚拟环境 (uv 创建的)
-.venv/
+# 保留当前规则文件，并允许进入目录继续匹配
+!.gitignore
+!*/
 
-# 环境变量/密码 (绝对不能提交！)
-.env
+# 只放行各个 skill 下的 reference / scripts 目录及其内容
+!*/reference/
+!*/reference/**
+!*/scripts/
+!*/scripts/**
 
-# 向量数据库数据 (太大了，不要提交)
-lancedb_data/
-*.lance/
+# 放行各个 skill 下常见的非敏感文件
+!*/.env.example
+!*/*.md
+!*/*.txt
+!*/*.json
+!*/*.yaml
+!*/*.yml
+!*/*.toml
+!*/*.py
+!*/*.sh
 
-# IDE 配置
-.vscode/
-.idea/
-
-# 临时文件
-*.log
-
-storage_data/
+# 明确禁止敏感/临时/大文件内容
+**/__pycache__/
+**/*.py[cod]
+**/.venv/
+**/.env
+**/.env.*
+**/*.env
+**/lancedb_data/
+**/*.lance/
+**/.vscode/
+**/.idea/
+**/*.log
+**/storage_data/
+**/assets/

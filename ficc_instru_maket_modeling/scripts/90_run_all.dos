@@ -1,2 +1,10 @@
+<<<<<<< HEAD
 run("/hdd/hdd9/jrzhang/.github/skills/ficc_instru_maket_modeling/scripts/01_create_standard_schema.dos")
 run("/hdd/hdd9/jrzhang/.github/skills/ficc_instru_maket_modeling/scripts/91_run_etl_with_mapping.dos")
+=======
+run("scripts/02_probe_source_db.dos")
+run("scripts/01_create_standard_schema.dos")
+run("scripts/03_build_field_mapping.dos")
+run("scripts/04_transform_to_standard.dos")
+run("scripts/05_quality_check.dos")
+>>>>>>> 9d5b720b37ab39d8527dcefd33710ba118119305

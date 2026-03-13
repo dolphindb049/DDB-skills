@@ -1,0 +1,131 @@
+// 02_curve_dependency_check.dos
+// 输入: pricingDate
+// 输出: 共享表 pricing_curve_dependency_report / pricing_curve_orphan_bonds
+
+if(!exists("pricingDate")) pricingDate = 2026.03.04
+if(!exists("maxBondsForCheck")) maxBondsForCheck = 3000
+
+profiles = table(
+    ["std_pair", "ficc_api_pair"] as profileName,
+    ["dfs://instrument_std", "dfs://ficc_api_pdf_2026"] as instrumentDb,
+    ["Instrument", "std_instrument_bond"] as instrumentTable,
+    ["dfs://marketdata_std", "dfs://ficc_api_pdf_2026"] as marketDb,
+    ["MarketData", "std_market_curve"] as marketTable
+)
+
+report = table(2000:0,
+    `pricingDate`profileName`metric`value`detail`checkTime,
+    [DATE,STRING,STRING,DOUBLE,STRING,TIMESTAMP]
+)
+
+orphans = table(200000:0,
+    `pricingDate`profileName`instrumentId`curveName`reason`checkTime,
+    [DATE,STRING,STRING,STRING,STRING,TIMESTAMP]
+)
+
+def curveByInstrumentId(id){
+    sid = string(id)
+    tok = split(sid, ".")
+    if(size(tok)>=2) return "PRICE_"+tok[0]+"_"+tok[1]
+    return "PRICE_"+sid
+}
+
+for(i in 0..(size(profiles)-1)){
+    profileName = profiles.profileName[i]
+    instDb = profiles.instrumentDb[i]
+    instTable = profiles.instrumentTable[i]
+    mktDb = profiles.marketDb[i]
+    mktTable = profiles.marketTable[i]
+
+    if(!(existsDatabase(instDb) && existsTable(instDb, instTable) && existsDatabase(mktDb) && existsTable(mktDb, mktTable))){
+        tableInsert(report, pricingDate, profileName, "profile_skipped_missing_source", 1.0, "db/table not exists", now())
+        continue
+    }
+
+    instTb = loadTable(instDb, instTable)
+    mktTb = loadTable(mktDb, mktTable)
+
+    marketNames = []
+    if(profileName=="std_pair"){
+        marketNames = (exec name from mktTb where referenceDate <= pricingDate)
+    }else{
+        marketNames = (exec curveName from mktTb where referenceDate = pricingDate)
+        if(size(marketNames)==0){
+            marketNames = (exec curveName from mktTb where referenceDate <= pricingDate)
+        }
+    }
+
+    marketNames = distinct(marketNames)
+    tableInsert(report, pricingDate, profileName, "available_curve_count", double(size(marketNames)), "distinct market curve names", now())
+
+    totalBonds = 0
+    readyBonds = 0
+
+    if(profileName=="std_pair"){
+        sample = select instrumentId, instrument from instTb where instrumentType in ["FixedRateBond","ZeroCouponBond","DiscountBond"]
+        if(size(sample)>maxBondsForCheck) sample = sample[0..(maxBondsForCheck-1)]
+        n = size(sample)
+        totalBonds = n
+        if(n>0){
+            dvec = extractInstrument(sample.instrument)
+            for(j in 0..(n-1)){
+                d = dvec[j]
+                curveName = ""
+                if(isValid(d["discountCurve"]) && string(d["discountCurve"])!=""){
+                    curveName = string(d["discountCurve"])
+                }else{
+                    curveName = curveByInstrumentId(sample.instrumentId[j])
+                }
+
+                if(curveName in marketNames){
+                    readyBonds += 1
+                }else{
+                    tableInsert(orphans, pricingDate, profileName, string(sample.instrumentId[j]), curveName, "discountCurve not found in MarketData", now())
+                }
+            }
+        }
+
+        tableInsert(report, pricingDate, profileName, "curve_type_warning", 1.0, "std_pair MarketData 的 data 可能非 IrYieldCurve，实际定价前会二次校验", now())
+    }else{
+        sample = select instrumentId, discountCurve, spreadCurve, subType, currency from instTb where start<=pricingDate,maturity>pricingDate
+        if(size(sample)>maxBondsForCheck) sample = sample[0..(maxBondsForCheck-1)]
+        n = size(sample)
+        totalBonds = n
+        if(n>0){
+            for(j in 0..(n-1)){
+                curveName = ""
+                if(isValid(sample.discountCurve[j]) && string(sample.discountCurve[j])!=""){
+                    curveName = string(sample.discountCurve[j])
+                }else{
+                    ccy = iif(isValid(sample.currency[j]) && string(sample.currency[j])!="", string(sample.currency[j]), "CNY")
+                    subType = iif(isValid(sample.subType[j]) && string(sample.subType[j])!="", string(sample.subType[j]), "CORP_BOND")
+                    curveName = ccy + "_" + subType + "_YTM"
+                }
+
+                if(curveName in marketNames){
+                    readyBonds += 1
+                }else{
+                    tableInsert(orphans, pricingDate, profileName, string(sample.instrumentId[j]), curveName, "discountCurve not found in std_market_curve", now())
+                }
+            }
+        }
+    }
+
+    orphanCnt = totalBonds - readyBonds
+    readyRate = iif(totalBonds>0, double(readyBonds) / totalBonds, 0.0)
+    tableInsert(report, pricingDate, profileName, "total_bonds_checked", double(totalBonds), "sample bonds", now())
+    tableInsert(report, pricingDate, profileName, "ready_bonds", double(readyBonds), "curve exists", now())
+    tableInsert(report, pricingDate, profileName, "orphan_bonds", double(orphanCnt), "curve missing -> Unpriced(Fail)", now())
+    tableInsert(report, pricingDate, profileName, "curve_ready_rate", readyRate, "ready/total", now())
+}
+
+if(exists("pricing_curve_dependency_report")){
+    undef("pricing_curve_dependency_report", SHARED)
+}
+if(exists("pricing_curve_orphan_bonds")){
+    undef("pricing_curve_orphan_bonds", SHARED)
+}
+share(report, `pricing_curve_dependency_report)
+share(orphans, `pricing_curve_orphan_bonds)
+
+select * from pricing_curve_dependency_report order by profileName, metric

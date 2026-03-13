@@ -24,13 +24,13 @@ metadata:
 
 **执行代码片段:**
 ```powershell
-# 替换为你实际的 host 和 port
-uv run ./skills/execute-dlang/scripts/ddb_runner/execute.py -c "1+1" --host 192.168.100.43 --port 7739 --user admin --password 123456
+# 先设置环境变量，或把下面占位符替换成你的实际连接信息
+uv run ./skills/execute-dlang/scripts/ddb_runner/execute.py -c "1+1" --host <DDB_HOST> --port <DDB_PORT> --user <DDB_USER> --password <DDB_PASSWORD>
 ```
 
 **执行 .dos 文件:**
 ```powershell
-uv run ./skills/execute-dlang/scripts/ddb_runner/execute.py path/to/your_script.dos --host 192.168.100.43 --port 7739
+uv run ./skills/execute-dlang/scripts/ddb_runner/execute.py path/to/your_script.dos --host <DDB_HOST> --port <DDB_PORT> --user <DDB_USER> --password <DDB_PASSWORD>
 ```
 
 ---
@@ -42,7 +42,7 @@ uv run ./skills/execute-dlang/scripts/ddb_runner/execute.py path/to/your_script.
 ### 步骤 1: 启动后台 Server
 在终端中启动 Server（它会保持运行）：
 ```powershell
-uv run ./skills/execute-dlang/scripts/ddb_runner/server.py --host 192.168.100.43 --port 7739
+uv run ./skills/execute-dlang/scripts/ddb_runner/server.py --host <DDB_HOST> --port <DDB_PORT> --user <DDB_USER> --password <DDB_PASSWORD>
 ```
 *(看到 `[Info] Server listening on 127.0.0.1:65432` 表示成功)*
 

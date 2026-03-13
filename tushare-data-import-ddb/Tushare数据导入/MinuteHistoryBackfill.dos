@@ -1,0 +1,279 @@
+/**
+ * MinuteHistoryBackfill.dos
+ * ─────────────────────────────────────────────────────────────
+ * 纯 DolphinDB 服务端历史分钟线回填脚本。
+ *
+ * 原理:
+ *   1. 通过 httpClient 调用 Tushare stk_mins 接口拉历史 1 分钟线
+ *   2. stk_mins 每次调用返回单只股票、最多 8000 行 (≈33 天)
+ *   3. 按交易日逐日检查 DFS 已有数据，只拉缺失日
+ *   4. 内置限速 (sleep) 避免触发 Tushare API 频率限制
+ *
+ * 依赖:
+ *   先 source MinuteRealtimeSync.dos，本脚本复用其:
+ *     - minuteSyncCfg()      配置
+ *     - callTushareAPI()     HTTP 调用
+ *     - ensureMinuteTable()  建库建表
+ *     - getActiveSymbols()   全 A 票池
+ *
+ * 入口:
+ *   ① backfillMinute(startDate, endDate)
+ *       回填全 A 股指定日期范围的分钟线
+ *   ② backfillMinuteForCodes(startDate, endDate, tsCodes)
+ *       回填指定股票列表的分钟线
+ *   ③ backfillStatus(startDate, endDate)
+ *       查看指定日期范围内各日的覆盖情况
+ *
+ * 用法示例:
+ *   backfillMinuteForCodes(2026.03.01, 2026.03.11, ["000001.SZ","600000.SH"])
+ *   backfillMinute(2026.03.01, 2026.03.11)
+ *   backfillStatus(2026.03.01, 2026.03.11)
+ */
+
+// ─────────────────── 交易日历 ───────────────────
+/**
+ * 通过 Tushare trade_cal 获取 [startDate, endDate] 之间的交易日列表。
+ * 返回 DATE 类型的向量，升序排列。
+ */
+def getTradeDays(startDate, endDate){
+    params = dict(STRING, ANY)
+    params["exchange"] = ""
+    params["start_date"] = temporalFormat(startDate, "yyyyMMdd")
+    params["end_date"]   = temporalFormat(endDate, "yyyyMMdd")
+    params["is_open"]    = "1"
+    t = callTushareAPI("trade_cal", params, "cal_date")
+    if(size(t) == 0) return array(DATE, 0)
+    // cal_date 返回 "20260311" 格式字符串
+    dates = exec temporalParse(string(cal_date), "yyyyMMdd") from t
+    return sort(dates)
+}
+
+// ─────────────────── 一次性快照: 整个日期范围已有数据 ───────────────────
+/**
+ * 一条 SQL 查出 [startDate, endDate] 范围内所有 (ts_code, trade_date) 的 bar 数。
+ * 返回 dict: "ts_code|yyyyMMdd" -> barCount。
+ * 后续 backfillOneStock 直接在 dict 里 O(1) 查找, 不再逐日 SQL。
+ */
+def getExistingSnapshot(startDate, endDate){
+    cfg = minuteSyncCfg()
+    snap = dict(STRING, INT)
+    if(!existsTable(cfg["dbPath"], cfg["tableName"])) return snap
+    t = loadTable(cfg["dbPath"], cfg["tableName"])
+    result = select ts_code, trade_date, count(*) as bar_count
+             from t
+             where trade_date >= startDate, trade_date <= endDate
+             group by ts_code, trade_date
+    if(size(result) == 0) return snap
+    for(i in 0..(size(result)-1)){
+        key = result["ts_code"][i] + "|" + temporalFormat(result["trade_date"][i], "yyyyMMdd")
+        snap[key] = result["bar_count"][i]
+    }
+    return snap
+}
+
+// ─────────────────── 拉取单只股票某段日期的历史分钟线 ───────────────────
+/**
+ * 调用 stk_mins，返回标准化后的 table (与 DFS 表 schema 一致)。
+ * stk_mins 一次最多返回 8000 行。
+ * 如果日期范围超长, 外层需要分段调用。
+ */
+def fetchHistMinute(tsCode, startDateStr, endDateStr){
+    cfg = minuteSyncCfg()
+    params = dict(STRING, ANY)
+    params["ts_code"]    = tsCode
+    params["start_date"] = startDateStr
+    params["end_date"]   = endDateStr
+    params["freq"]       = "1min"
+    t = callTushareAPI("stk_mins", params, "")
+    if(size(t) == 0) return table(1:0, string(cfg["colNames"]), cfg["colTypes"])
+
+    // stk_mins 返回列: ts_code, trade_time, close, open, high, low, vol, amount
+    // 需转换类型 + 补齐缺失列
+    tmp = select
+        symbol(ts_code) as ts_code,
+        date(temporalParse(string(trade_time), "yyyy-MM-dd HH:mm:ss")) as trade_date,
+        temporalParse(string(trade_time), "yyyy-MM-dd HH:mm:ss") as trade_time,
+        double(open) as open,
+        double(high) as high,
+        double(low) as low,
+        double(close) as close,
+        double(vol) as vol,
+        double(amount) as amount,
+        double() as pre_close,
+        double() as changeVal,
+        double() as pct_chg,
+        timestamp(now()) as update_time
+    from t
+    return select ts_code, trade_date, trade_time, open, high, low, close,
+                  vol, amount, pre_close, changeVal as change, pct_chg, update_time
+           from tmp
+}
+
+// ─────────────────── 单只股票回填 ───────────────────
+/**
+ * 回填一只股票在 tradeDays 范围内缺失的交易日。
+ * snapshot: 由 getExistingSnapshot 一次性生成的 dict("code|date" -> barCount)
+ * sleepMs: 每次 API 调用后等待的毫秒数 (限速)
+ * minBars: 认为该日已完整的最低 bar 数 (默认 200, 交易日应有 ~241)
+ * 返回: 本次新增的行数
+ */
+def backfillOneStock(tsCode, tradeDays, snapshot, sleepMs, minBars){
+    cfg = minuteSyncCfg()
+    dbPath = cfg["dbPath"]
+    tbName = cfg["tableName"]
+
+    // 先用 snapshot 快速筛出缺失日 (O(1) dict 查找, 不查 DFS)
+    missingDays = array(DATE, 0)
+    for(d in 0..(size(tradeDays)-1)){
+        key = tsCode + "|" + temporalFormat(tradeDays[d], "yyyyMMdd")
+        bc = snapshot.find(key)
+        if(bc == NULL || bc < minBars){
+            missingDays.append!(tradeDays[d])
+        }
+    }
+    if(size(missingDays) == 0) return 0
+
+    // 按 30 天分段拉缺失日
+    totalNew = 0
+    chunkSize = 30
+    chunkCount = int(ceil(double(size(missingDays)) / chunkSize))
+
+    for(c in 0..(chunkCount-1)){
+        si = c * chunkSize
+        ei = min((c + 1) * chunkSize, size(missingDays)) - 1
+        chunkStart = missingDays[si]
+        chunkEnd   = missingDays[ei]
+
+        startStr = temporalFormat(chunkStart, "yyyyMMdd")
+        endStr   = temporalFormat(chunkEnd, "yyyyMMdd")
+        rawData = fetchHistMinute(tsCode, startStr, endStr)
+        sleep(sleepMs)
+
+        if(size(rawData) == 0){
+            writeLog("[Backfill] " + tsCode + " chunk " + string(c+1) + " returned 0 rows")
+            continue
+        }
+
+        // stk_mins 可能返回 chunkStart~chunkEnd 范围内所有日的数据
+        // 只保留 missingDays 中的日期 (避免覆盖已有完整日)
+        chunkMissSet = missingDays[si : (ei+1)]
+        rawData = select * from rawData where trade_date in chunkMissSet
+
+        if(size(rawData) > 0){
+            loadTable(dbPath, tbName).append!(rawData)
+            totalNew += size(rawData)
+        }
+    }
+    return totalNew
+}
+
+// ─────────────────── 主入口: 回填指定股票 ───────────────────
+/**
+ * 回填指定股票列表在 [startDate, endDate] 范围内的全部历史 1 分钟线。
+ * @param startDate  起始日, DATE 类型, 如 2026.01.01
+ * @param endDate    截止日, DATE 类型, 如 2026.03.11
+ * @param tsCodes    股票代码数组, 如 ["000001.SZ", "600000.SH"]
+ * @param sleepMs    每次 API 调用后暂停毫秒 (默认 200, ≈300 次/分)
+ * @param minBars    认为某日已完整的最低 bar 数 (默认 200)
+ */
+def backfillMinuteForCodes(startDate, endDate, tsCodes, sleepMs=200, minBars=200){
+    startTs = now()
+    ensureMinuteTable()
+    writeLog("[Backfill] === Start backfill: " + string(startDate) + " ~ " + string(endDate) +
+             ", stocks=" + string(size(tsCodes)) + " ===")
+
+    tradeDays = getTradeDays(startDate, endDate)
+    nDays = size(tradeDays)
+    if(nDays == 0){
+        writeLog("[Backfill] No trading days in range, done.")
+        print("No trading days in range.")
+        return
+    }
+    writeLog("[Backfill] Trading days in range: " + string(nDays))
+
+    // 一次性查出已有数据快照, 避免逐日 SQL
+    snapshot = getExistingSnapshot(startDate, endDate)
+    writeLog("[Backfill] Existing snapshot: " + string(size(snapshot)) + " (code,date) pairs")
+    print("Trading days: " + string(nDays) + " | Stocks: " + string(size(tsCodes)) +
+          " | Existing pairs: " + string(size(snapshot)))
+
+    grandTotal = 0
+    skipped = 0
+    errors = 0
+    totalStocks = size(tsCodes)
+    progressInterval = max(1, int(totalStocks / 20))   // 每 5% 输出一次
+    for(i in 0..(totalStocks-1)){
+        code = tsCodes[i]
+        try{
+            n = backfillOneStock(code, tradeDays, snapshot, sleepMs, minBars)
+            grandTotal += n
+            if(n == 0) skipped += 1
+        } catch(ex){
+            errors += 1
+            writeLog("[Backfill] ERROR " + code + ": " + string(ex))
+        }
+        // 每 progressInterval 只 或 最后一只 打印进度
+        done = i + 1
+        if(done % progressInterval == 0 || done == totalStocks){
+            pct = string(int(double(done) / totalStocks * 100))
+            elapsedSec = double(now() - startTs) / 1000.0
+            speed = iif(elapsedSec > 0, double(done) / elapsedSec, 0.0)
+            eta = iif(speed > 0, double(totalStocks - done) / speed, 0.0)
+            msg = "[Backfill] " + string(done) + "/" + string(totalStocks) +
+                  " (" + pct + "%) | new=" + string(grandTotal) +
+                  " skip=" + string(skipped) + " err=" + string(errors) +
+                  " | " + format(elapsedSec, "0.1") + "s elapsed" +
+                  " | ETA " + format(eta, "0.0") + "s"
+            writeLog(msg)
+            print(msg)
+        }
+    }
+
+    elapsed = double(now() - startTs) / 1000.0
+    summary = "[Backfill] Done: new=" + string(grandTotal) +
+              " skip=" + string(skipped) + " err=" + string(errors) +
+              " | " + format(elapsed, "0.1") + "s total"
+    writeLog(summary)
+    print(summary)
+}
+
+// ─────────────────── 主入口: 回填全 A 股 ───────────────────
+/**
+ * 回填全部活跃 A 股在 [startDate, endDate] 范围内的 1 分钟线。
+ * 注意: 全 A 约 5500 只, 每只至少 1 次 API 调用, 可能需要数小时。
+ */
+def backfillMinute(startDate, endDate, sleepMs=200, minBars=200){
+    codes = getActiveSymbols()
+    if(size(codes) == 0){
+        print("No active symbols found.")
+        return
+    }
+    print("Active symbols: " + string(size(codes)))
+    backfillMinuteForCodes(startDate, endDate, codes, sleepMs, minBars)
+}
+
+// ─────────────────── 诊断: 查看日期范围覆盖情况 ───────────────────
+/**
+ * 返回每个交易日的股票数和总行数, 快速看哪些日子有数据缺口。
+ */
+def backfillStatus(startDate, endDate){
+    cfg = minuteSyncCfg()
+    if(!existsTable(cfg["dbPath"], cfg["tableName"])){
+        print("Table not found.")
+        return table(1:0, `trade_date`symbol_count`total_rows`avg_bars, [DATE, INT, LONG, DOUBLE])
+    }
+    t = loadTable(cfg["dbPath"], cfg["tableName"])
+    result = select trade_date,
+                    nunique(ts_code) as symbol_count,
+                    count(*) as total_rows,
+                    double(count(*)) / nunique(ts_code) as avg_bars
+             from t
+             where trade_date >= startDate, trade_date <= endDate
+             group by trade_date
+             order by trade_date
+    return result
+}
+
+
+
+backfillMinute(2026.03.09, 2026.03.11)

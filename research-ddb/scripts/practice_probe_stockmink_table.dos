@@ -1,8 +1,0 @@
-t = select distinct dfsPath from getChunksMeta() where like(dfsPath, "/stockMinKSH/%")
-
-tablePaths = select * from t where like(dfsPath, "%.tbl")
-
-res = dict(STRING, ANY)
-res["stockMinKSH_path_count"] = size(t)
-res["stockMinKSH_tbl_paths"] = tablePaths
-res

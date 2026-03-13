@@ -27,10 +27,6 @@ except ImportError as e:
 
 def load_config(args):
     """Load configuration from args, .env files or environment variables."""
-    # 0. Try loading from args first
-    if args.host and args.port:
-        return args.host, int(args.port), args.user, args.password
-
     # 1. Try loading from current directory .env
     current_dir = os.path.dirname(os.path.abspath(__file__))
     dotenv_path = os.path.join(current_dir, ".env")
@@ -44,13 +40,18 @@ def load_config(args):
         load_dotenv(parent_dotenv_path)
 
     # 3. Read from environment
-    host = os.getenv("DDB_HOST")
-    port = os.getenv("DDB_PORT")
-    user = os.getenv("DDB_USER", "admin")
-    password = os.getenv("DDB_PASSWORD") or os.getenv("DDB_PASS", "123456")
-    
-    if not host or not port:
-        print("[Error] DDB_HOST and DDB_PORT must be set via arguments, .env file or environment variables.")
+    host = (args.host or os.getenv("DDB_HOST") or "").strip()
+    port = str(args.port or os.getenv("DDB_PORT") or "").strip()
+    user = (args.user or os.getenv("DDB_USER") or "").strip()
+    password = (args.password or os.getenv("DDB_PASSWORD") or os.getenv("DDB_PASS") or "").strip()
+
+    missing = [
+        name
+        for name, value in (("DDB_HOST", host), ("DDB_PORT", port), ("DDB_USER", user), ("DDB_PASSWORD", password))
+        if not value
+    ]
+    if missing:
+        print(f"[Error] Missing required settings: {', '.join(missing)}. Set them via arguments, .env file or environment variables.")
         sys.exit(1)
         
     return host, int(port), user, password
@@ -166,8 +167,8 @@ def main():
     parser.add_argument("--use-server", action="store_true", help="Use persistent server session")
     parser.add_argument("--host", help="DolphinDB host address")
     parser.add_argument("--port", help="DolphinDB port")
-    parser.add_argument("--user", default="admin", help="DolphinDB username")
-    parser.add_argument("--password", default="123456", help="DolphinDB password")
+    parser.add_argument("--user", help="DolphinDB username")
+    parser.add_argument("--password", help="DolphinDB password")
     
     args = parser.parse_args()
     

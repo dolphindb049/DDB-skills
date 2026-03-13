@@ -1,0 +1,142 @@
+// 01_pricing_data_readiness.dos
+// 输入: pricingDate
+// 输出: 共享表 pricing_data_readiness_report / pricing_data_readiness_missing_assets
+
+if(!exists("pricingDate")) pricingDate = 2026.03.04
+if(!exists("sampleSize")) sampleSize = 1000
+
+profiles = table(
+    ["std_pair", "ficc_api_pair"] as profileName,
+    ["dfs://instrument_std", "dfs://ficc_api_pdf_2026"] as instrumentDb,
+    ["Instrument", "std_instrument_bond"] as instrumentTable,
+    ["dfs://marketdata_std", "dfs://ficc_api_pdf_2026"] as marketDb,
+    ["MarketData", "std_market_curve"] as marketTable
+)
+
+report = table(1000:0,
+    `pricingDate`profileName`checkName`status`metric`value`detail`checkTime,
+    [DATE,STRING,STRING,STRING,STRING,DOUBLE,STRING,TIMESTAMP]
+)
+
+missingAssets = table(10000:0,
+    `pricingDate`profileName`instrumentId`missingFields`detail`checkTime,
+    [DATE,STRING,STRING,STRING,STRING,TIMESTAMP]
+)
+
+def joinMissing(flags){
+    miss = []
+    if(!flags[0]) miss.append!("issueDate/start")
+    if(!flags[1]) miss.append!("maturity")
+    if(!flags[2]) miss.append!("couponRate/coupon")
+    if(!flags[3]) miss.append!("frequency")
+    if(!flags[4]) miss.append!("basis/dayCountConvention")
+    if(size(miss)==0) return ""
+    return concat(miss, "|")
+}
+
+for(i in 0..(size(profiles)-1)){
+    profileName = profiles.profileName[i]
+    instDb = profiles.instrumentDb[i]
+    instTable = profiles.instrumentTable[i]
+    mktDb = profiles.marketDb[i]
+    mktTable = profiles.marketTable[i]
+
+    if(!existsDatabase(instDb)){
+        tableInsert(report, pricingDate, profileName, "instrument_db_exists", "FAIL", "exists", 0, "missing db: "+instDb, now())
+        continue
+    }
+    if(!existsDatabase(mktDb)){
+        tableInsert(report, pricingDate, profileName, "market_db_exists", "FAIL", "exists", 0, "missing db: "+mktDb, now())
+        continue
+    }
+    if(!existsTable(instDb, instTable)){
+        tableInsert(report, pricingDate, profileName, "instrument_table_exists", "FAIL", "exists", 0, "missing table: "+instTable, now())
+        continue
+    }
+    if(!existsTable(mktDb, mktTable)){
+        tableInsert(report, pricingDate, profileName, "market_table_exists", "FAIL", "exists", 0, "missing table: "+mktTable, now())
+        continue
+    }
+
+    instTb = loadTable(instDb, instTable)
+    mktTb = loadTable(mktDb, mktTable)
+
+    instCnt = (exec count(*) from instTb)[0]
+    tableInsert(report, pricingDate, profileName, "instrument_row_count", "OK", "count", double(instCnt), "instrument rows", now())
+
+    defs = schema(instTb).colDefs
+    colNames = defs.name
+    typeNames = defs.typeString
+
+    hasInstCol = false
+    instColIdx = -1
+    for(k in 0..(size(colNames)-1)){
+        if(colNames[k]=="instrument" && typeNames[k]=="INSTRUMENT"){
+            hasInstCol = true
+            instColIdx = k
+            break
+        }
+    }
+    tableInsert(report, pricingDate, profileName, "instrument_column_type", iif(hasInstCol,"OK","WARN"), "hasInstrumentCol", iif(hasInstCol,1.0,0.0), "require INSTRUMENT col for standard模式", now())
+
+    if(hasInstCol){
+        sampleTb = select instrumentId, instrument from instTb where instrumentType in ["FixedRateBond","ZeroCouponBond","DiscountBond"]
+        if(size(sampleTb)>sampleSize) sampleTb = sampleTb[0..(sampleSize-1)]
+        n = size(sampleTb)
+        validCnt = 0
+        missCnt = 0
+        if(n>0){
+            dicts = extractInstrument(sampleTb.instrument)
+            for(j in 0..(n-1)){
+                d = dicts[j]
+                fStart = isValid(d["start"])
+                fMat = isValid(d["maturity"])
+                fCoupon = isValid(d["coupon"])
+                fFreq = isValid(d["frequency"]) && string(d["frequency"])!=""
+                fBasis = isValid(d["dayCountConvention"]) && string(d["dayCountConvention"])!=""
+                miss = joinMissing([fStart,fMat,fCoupon,fFreq,fBasis])
+                if(miss=="") validCnt += 1 else {
+                    missCnt += 1
+                    tableInsert(missingAssets, pricingDate, profileName, string(sampleTb.instrumentId[j]), miss, "from extractInstrument", now())
+                }
+            }
+        }
+        tableInsert(report, pricingDate, profileName, "instrument_required_fields", iif(missCnt==0,"OK","WARN"), "sample_valid_count", double(validCnt), "sampleSize="+string(n), now())
+        tableInsert(report, pricingDate, profileName, "instrument_required_fields", iif(missCnt==0,"OK","WARN"), "sample_missing_count", double(missCnt), "missing list in shared table", now())
+    }else{
+        reqCols = ["start","maturity","coupon","frequency","dayCountConvention"]
+        missCol = []
+        for(c in reqCols){
+            if(!(c in colNames)) missCol.append!(c)
+        }
+        tableInsert(report, pricingDate, profileName, "instrument_required_columns", iif(size(missCol)==0,"OK","FAIL"), "missing_col_count", double(size(missCol)), concat(missCol, "|"), now())
+
+        if(size(missCol)==0){
+            sampleTb = select instrumentId,start,maturity,coupon,frequency,dayCountConvention from instTb
+            if(size(sampleTb)>sampleSize) sampleTb = sampleTb[0..(sampleSize-1)]
+            n = size(sampleTb)
+            missCnt = (exec count(*) from sampleTb where isNull(start) or isNull(maturity) or isNull(coupon) or isNull(frequency) or isNull(dayCountConvention))[0]
+            tableInsert(report, pricingDate, profileName, "instrument_required_fields", iif(missCnt==0,"OK","WARN"), "sample_missing_count", double(missCnt), "sample null checks", now())
+        }
+    }
+
+    if("referenceDate" in schema(mktTb).colDefs.name){
+        cntEq = (exec count(*) from mktTb where referenceDate = pricingDate)[0]
+        cntLe = (exec count(*) from mktTb where referenceDate <= pricingDate)[0]
+        tableInsert(report, pricingDate, profileName, "market_pricing_date", iif(cntEq>0,"OK","WARN"), "rows_on_pricing_date", double(cntEq), "referenceDate = pricingDate", now())
+        tableInsert(report, pricingDate, profileName, "market_history_available", iif(cntLe>0,"OK","FAIL"), "rows_upto_pricing_date", double(cntLe), "referenceDate <= pricingDate", now())
+    }else{
+        tableInsert(report, pricingDate, profileName, "market_pricing_date", "FAIL", "rows_on_pricing_date", 0, "missing referenceDate column", now())
+    }
+}
+
+if(exists("pricing_data_readiness_report")){
+    undef("pricing_data_readiness_report", SHARED)
+}
+if(exists("pricing_data_readiness_missing_assets")){
+    undef("pricing_data_readiness_missing_assets", SHARED)
+}
+share(report, `pricing_data_readiness_report)
+share(missingAssets, `pricing_data_readiness_missing_assets)
+
+select * from pricing_data_readiness_report order by profileName, checkName, metric

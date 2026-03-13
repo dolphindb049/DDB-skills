@@ -1,0 +1,255 @@
+// 04_run_pricing_engine.dos
+// 输入: pricingDate, outputDbPath, outputTablePrefix, isStreaming, maxBondsPerProfile
+// 输出: pricing_* 结果表 + 共享表 pricing_engine_run_report
+
+if(!exists("pricingDate")) pricingDate = 2026.03.04
+if(!exists("outputDbPath")) outputDbPath = "dfs://ficc_pricing_pipeline"
+if(!exists("outputTablePrefix")) outputTablePrefix = "pricing"
+if(!exists("isStreaming")) isStreaming = false
+if(!exists("maxBondsPerProfile")) maxBondsPerProfile = 200
+
+def fpCurveByInstrumentId(id){
+    sid = string(id)
+    tok = split(sid, ".")
+    if(size(tok)>=2) return "PRICE_"+tok[0]+"_"+tok[1]
+    return "PRICE_"+sid
+}
+
+def fpParseCurveFromSerialized(row, pricingDate){
+    dts = temporalParse(split(string(row["dates"]), ","), "yyyy.MM.dd")
+    vals = double(split(string(row["values"]), ","))
+    c = dict(STRING, ANY)
+    c["mktDataType"] = "Curve"
+    c["curveType"] = "IrYieldCurve"
+    c["referenceDate"] = pricingDate
+    c["dayCountConvention"] = iif(isValid(row["dayCountConvention"]) && string(row["dayCountConvention"])!="", string(row["dayCountConvention"]), "ActualActualISDA")
+    c["compounding"] = iif(isValid(row["compounding"]) && string(row["compounding"])!="", string(row["compounding"]), "Compounded")
+    c["frequency"] = iif(isValid(row["frequency"]) && string(row["frequency"])!="", string(row["frequency"]), "Annual")
+    c["interpMethod"] = iif(isValid(row["interpMethod"]) && string(row["interpMethod"])!="", string(row["interpMethod"]), "Linear")
+    c["extrapMethod"] = iif(isValid(row["extrapMethod"]) && string(row["extrapMethod"])!="", string(row["extrapMethod"]), "Flat")
+    c["curveName"] = string(row["curveName"])
+    c["currency"] = iif(isValid(row["currency"]) && string(row["currency"])!="", string(row["currency"]), "CNY")
+    c["dates"] = dts
+    c["values"] = vals
+    return parseMktData(c)
+}
+
+def fpScalarDouble(x){
+    return double(take(x, 1)[0])
+}
+
+def fpBuildInstrumentFromStdInstrument(d, curveName){
+    x = d.copy()
+    x["discountCurve"] = curveName
+    return parseInstrument(x)
+}
+
+def fpBuildInstrumentFromNormalized(row, curveName){
+    d = dict(STRING, ANY)
+    d["productType"] = "Cash"
+    d["assetType"] = "Bond"
+    d["bondType"] = iif(isValid(row["bondType"]) && string(row["bondType"])!="", string(row["bondType"]), "FixedRateBond")
+    d["instrumentId"] = string(row["instrumentId"])
+    d["start"] = row["start"]
+    d["maturity"] = row["maturity"]
+    d["issuePrice"] = iif(isValid(row["issuePrice"]), double(row["issuePrice"]), 100.0)
+    d["coupon"] = iif(isValid(row["coupon"]), double(row["coupon"]), 0.02)
+    d["frequency"] = iif(isValid(row["frequency"]) && string(row["frequency"])!="", string(row["frequency"]), "Annual")
+    d["dayCountConvention"] = iif(isValid(row["dayCountConvention"]) && string(row["dayCountConvention"])!="", string(row["dayCountConvention"]), "ActualActualISDA")
+    d["currency"] = iif(isValid(row["currency"]) && string(row["currency"])!="", string(row["currency"]), "CNY")
+    d["subType"] = iif(isValid(row["subType"]) && string(row["subType"])!="", string(row["subType"]), "CORP_BOND")
+    d["discountCurve"] = curveName
+    if(isValid(row["spreadCurve"]) && string(row["spreadCurve"])!="") d["spreadCurve"] = string(row["spreadCurve"])
+    return parseInstrument(d)
+}
+
+profiles = table(
+    ["std_pair", "ficc_api_pair"] as profileName,
+    ["dfs://instrument_std", "dfs://ficc_api_pdf_2026"] as instrumentDb,
+    ["Instrument", "std_instrument_bond"] as instrumentTable,
+    ["dfs://marketdata_std", "dfs://ficc_api_pdf_2026"] as marketDb,
+    ["MarketData", "std_market_curve"] as marketTable
+)
+
+priceTable = outputTablePrefix + "_price_result"
+riskTable = outputTablePrefix + "_risk_result"
+runTable = outputTablePrefix + "_run_summary"
+failureTable = outputTablePrefix + "_failure_detail"
+
+if(!(existsDatabase(outputDbPath) && existsTable(outputDbPath, priceTable) && existsTable(outputDbPath, riskTable) && existsTable(outputDbPath, runTable) && existsTable(outputDbPath, failureTable))){
+    throw "output schema not ready, run 03_create_pricing_schema.dos first"
+}
+
+priceTb = loadTable(outputDbPath, priceTable)
+riskTb = loadTable(outputDbPath, riskTable)
+summaryTb = loadTable(outputDbPath, runTable)
+failureTb = loadTable(outputDbPath, failureTable)
+
+pDate = pricingDate
+delete from priceTb where pricingDate = pDate
+delete from riskTb where pricingDate = pDate
+delete from summaryTb where pricingDate = pDate
+delete from failureTb where pricingDate = pDate
+
+runReport = table(1000:0,
+    `pricingDate`profileName`totalBonds`pricedBonds`failedBonds`successRate`detail`runTime,
+    [DATE,STRING,LONG,LONG,LONG,DOUBLE,STRING,TIMESTAMP]
+)
+
+priceRows = table(100000:0,
+    `pricingDate`profileName`instrumentId`curveName`status`errorMsg`cleanPrice`dirtyPrice`accruedInterest`ytm`npv`dv01`runTime,
+    [DATE,STRING,STRING,STRING,STRING,STRING,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,TIMESTAMP]
+)
+riskRows = table(100000:0,
+    `pricingDate`profileName`instrumentId`duration`modifiedDuration`convexity`discountCurveDelta`discountCurveGamma`checkTime,
+    [DATE,STRING,STRING,DOUBLE,DOUBLE,DOUBLE,DOUBLE,DOUBLE,TIMESTAMP]
+)
+failureRows = table(100000:0,
+    `pricingDate`profileName`instrumentId`curveName`stage`reason`detail`checkTime,
+    [DATE,STRING,STRING,STRING,STRING,STRING,STRING,TIMESTAMP]
+)
+
+for(i in 0..(size(profiles)-1)){
+    profileName = profiles.profileName[i]
+    instDb = profiles.instrumentDb[i]
+    instTable = profiles.instrumentTable[i]
+    mktDb = profiles.marketDb[i]
+    mktTable = profiles.marketTable[i]
+
+    if(!(existsDatabase(instDb) && existsTable(instDb, instTable) && existsDatabase(mktDb) && existsTable(mktDb, mktTable))){
+        tableInsert(runReport, pricingDate, profileName, 0l, 0l, 0l, 0.0, "source db/table missing", now())
+        continue
+    }
+
+    instSrc = loadTable(instDb, instTable)
+    mktSrc = loadTable(mktDb, mktTable)
+
+    totalBonds = 0l
+    pricedBonds = 0l
+    failedBonds = 0l
+
+    if(profileName=="std_pair"){
+        bonds = select instrumentId, instrument from instSrc where instrumentType in ["FixedRateBond","ZeroCouponBond","DiscountBond"]
+        if(size(bonds)>maxBondsPerProfile) bonds = bonds[0..(maxBondsPerProfile-1)]
+        totalBonds = long(size(bonds))
+
+        if(totalBonds>0){
+            dvec = extractInstrument(bonds.instrument)
+            for(j in 0..(totalBonds-1)){
+                iid = string(bonds.instrumentId[j])
+                d = dvec[j]
+
+                curveName = ""
+                if(isValid(d["discountCurve"]) && string(d["discountCurve"])!="") curveName = string(d["discountCurve"]) else curveName = fpCurveByInstrumentId(iid)
+
+                curveRows = select top 1 data from mktSrc where name = curveName, referenceDate <= pricingDate order by referenceDate desc
+                if(size(curveRows)==0){
+                    failedBonds += 1
+                    tableInsert(priceRows, pricingDate, profileName, iid, curveName, "Unpriced(Fail)", "curve not found", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, now())
+                    tableInsert(failureRows, pricingDate, profileName, iid, curveName, "curve_lookup", "curve_missing", "std_pair: discount curve not found", now())
+                    continue
+                }
+
+                curve = curveRows.data[0]
+                if(extractMktData(curve)["curveType"]!="IrYieldCurve"){
+                    failedBonds += 1
+                    tableInsert(priceRows, pricingDate, profileName, iid, curveName, "Unpriced(Fail)", "curveType is not IrYieldCurve", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, now())
+                    tableInsert(failureRows, pricingDate, profileName, iid, curveName, "curve_validation", "curve_type_invalid", string(extractMktData(curve)["curveType"]), now())
+                    continue
+                }
+
+                try{
+                    ins = fpBuildInstrumentFromStdInstrument(d, curveName)
+                    npv = bondPricer(ins, pricingDate, curve)
+                    npvVal = fpScalarDouble(npv)
+
+                    tableInsert(priceRows, pricingDate, profileName, iid, curveName, "Priced", "", npvVal, npvVal, 0.0, 0.0, npvVal, 0.0, now())
+                    tableInsert(riskRows, pricingDate, profileName, iid, 0.0, 0.0, 0.0, 0.0, 0.0, now())
+                    pricedBonds += 1
+                }catch(ex){
+                    failedBonds += 1
+                    tableInsert(priceRows, pricingDate, profileName, iid, curveName, "Unpriced(Fail)", string(ex), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, now())
+                    tableInsert(failureRows, pricingDate, profileName, iid, curveName, "bond_pricer", "exception", string(ex), now())
+                }
+            }
+        }
+    }else{
+        bonds = select instrumentId,bondType,start,maturity,issuePrice,coupon,frequency,dayCountConvention,currency,subType,discountCurve,spreadCurve from instSrc where start<=pricingDate,maturity>pricingDate
+        if(size(bonds)>maxBondsPerProfile) bonds = bonds[0..(maxBondsPerProfile-1)]
+        totalBonds = long(size(bonds))
+
+        curveRows = select * from mktSrc where referenceDate = pricingDate
+        if(size(curveRows)==0) curveRows = select * from mktSrc where referenceDate <= pricingDate
+
+        curveNameVec = curveRows.curveName
+
+        if(totalBonds>0){
+            for(j in 0..(totalBonds-1)){
+                iid = string(bonds.instrumentId[j])
+                curveName = ""
+                if(isValid(bonds.discountCurve[j]) && string(bonds.discountCurve[j])!=""){
+                    curveName = string(bonds.discountCurve[j])
+                }else{
+                    ccy = iif(isValid(bonds.currency[j]) && string(bonds.currency[j])!="", string(bonds.currency[j]), "CNY")
+                    st = iif(isValid(bonds.subType[j]) && string(bonds.subType[j])!="", string(bonds.subType[j]), "CORP_BOND")
+                    curveName = ccy + "_" + st + "_YTM"
+                }
+
+                idx = find(curveNameVec, curveName)
+                if(size(idx)==0){
+                    failedBonds += 1
+                    tableInsert(priceRows, pricingDate, profileName, iid, curveName, "Unpriced(Fail)", "curve not found in std_market_curve", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, now())
+                    tableInsert(failureRows, pricingDate, profileName, iid, curveName, "curve_lookup", "curve_missing", "ficc_api_pair: curve not found", now())
+                    continue
+                }
+
+                crow = curveRows[idx[0]]
+                try{
+                    curve = fpParseCurveFromSerialized(crow, pricingDate)
+                    insDef = dict(STRING, ANY)
+                    insDef["productType"] = "Cash"
+                    insDef["assetType"] = "Bond"
+                    insDef["bondType"] = iif(isValid(bonds.bondType[j]) && string(bonds.bondType[j])!="", string(bonds.bondType[j]), "FixedRateBond")
+                    insDef["instrumentId"] = iid
+                    insDef["start"] = bonds.start[j]
+                    insDef["maturity"] = bonds.maturity[j]
+                    insDef["issuePrice"] = iif(isValid(bonds.issuePrice[j]), double(bonds.issuePrice[j]), 100.0)
+                    insDef["coupon"] = iif(isValid(bonds.coupon[j]), double(bonds.coupon[j]), 0.02)
+                    insDef["frequency"] = iif(isValid(bonds.frequency[j]) && string(bonds.frequency[j])!="", string(bonds.frequency[j]), "Annual")
+                    insDef["dayCountConvention"] = iif(isValid(bonds.dayCountConvention[j]) && string(bonds.dayCountConvention[j])!="", string(bonds.dayCountConvention[j]), "ActualActualISDA")
+                    insDef["currency"] = iif(isValid(bonds.currency[j]) && string(bonds.currency[j])!="", string(bonds.currency[j]), "CNY")
+                    insDef["subType"] = iif(isValid(bonds.subType[j]) && string(bonds.subType[j])!="", string(bonds.subType[j]), "CORP_BOND")
+                    insDef["discountCurve"] = curveName
+                    if(isValid(bonds.spreadCurve[j]) && string(bonds.spreadCurve[j])!="") insDef["spreadCurve"] = string(bonds.spreadCurve[j])
+
+                    ins = parseInstrument(insDef)
+                    npv = bondPricer(ins, pricingDate, curve)
+                    npvVal = fpScalarDouble(npv)
+                    tableInsert(priceRows, pricingDate, profileName, iid, curveName, "Priced", "", npvVal, npvVal, 0.0, 0.0, npvVal, 0.0, now())
+                    tableInsert(riskRows, pricingDate, profileName, iid, 0.0, 0.0, 0.0, 0.0, 0.0, now())
+                    pricedBonds += 1
+                }catch(ex){
+                    failedBonds += 1
+                    tableInsert(priceRows, pricingDate, profileName, iid, curveName, "Unpriced(Fail)", string(ex), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, now())
+                    tableInsert(failureRows, pricingDate, profileName, iid, curveName, "bond_pricer", "exception", string(ex), now())
+                }
+            }
+        }
+    }
+
+    successRate = iif(totalBonds>0, double(pricedBonds)/double(totalBonds), 0.0)
+    detail = "isStreaming=" + string(isStreaming) + ", maxBonds=" + string(maxBondsPerProfile)
+    tableInsert(runReport, pricingDate, profileName, totalBonds, pricedBonds, failedBonds, successRate, detail, now())
+}
+
+if(size(priceRows)>0) append!(priceTb, priceRows)
+if(size(riskRows)>0) append!(riskTb, riskRows)
+if(size(runReport)>0) append!(summaryTb, runReport)
+if(size(failureRows)>0) append!(failureTb, failureRows)
+
+if(exists("pricing_engine_run_report")){
+    undef("pricing_engine_run_report", SHARED)
+}
+share(runReport, `pricing_engine_run_report)
+
+select * from pricing_engine_run_report

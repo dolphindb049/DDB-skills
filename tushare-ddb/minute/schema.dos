@@ -1,0 +1,70 @@
+/**
+ * minute/schema.dos — 分钟频建库建表
+ * ─────────────────────────────────────
+ * 依赖: 先 source _common.dos
+ *
+ * 用法:
+ *   ensureMinuteDB()           // 幂等, 可重复执行
+ *   dropMinuteDB()             // 删库（慎用）
+ *   select * from loadTable("dfs://ts_minute", "bar_1m") limit 10
+ */
+
+def minuteSchema(){
+    s = dict(STRING, ANY)
+    s["db"]    = "dfs://ts_minute"
+    s["tb"]    = "bar_1m"
+    s["cols"]  = `ts_code`trade_date`trade_time`open`high`low`close`vol`amount`pre_close`change`pct_chg`update_time
+    s["types"] = [SYMBOL, DATE, TIMESTAMP, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, DOUBLE, TIMESTAMP]
+    return s
+}
+
+def ensureMinuteDB(){
+    s = minuteSchema()
+    if(!existsDatabase(s["db"])){
+        dbDate   = database("", RANGE, date(datetimeAdd(2020.01M, 0..20*12, "M")))
+        dbSymbol = database("", HASH, [SYMBOL, 20])
+        database(s["db"], COMPO, [dbDate, dbSymbol], engine="TSDB")
+        writeLog("[schema] Created database " + s["db"])
+    }
+    if(existsTable(s["db"], s["tb"])){
+        writeLog("[schema] Table " + s["tb"] + " already exists, skip.")
+        return loadTable(s["db"], s["tb"])
+    }
+    tmpl = table(
+        array(SYMBOL, 0)    as ts_code,
+        array(DATE, 0)      as trade_date,
+        array(TIMESTAMP, 0) as trade_time,
+        array(DOUBLE, 0)    as open,
+        array(DOUBLE, 0)    as high,
+        array(DOUBLE, 0)    as low,
+        array(DOUBLE, 0)    as close,
+        array(DOUBLE, 0)    as vol,
+        array(DOUBLE, 0)    as amount,
+        array(DOUBLE, 0)    as pre_close,
+        array(DOUBLE, 0)    as changeVal,
+        array(DOUBLE, 0)    as pct_chg,
+        array(TIMESTAMP, 0) as update_time
+    )
+    db = database(s["db"])
+    db.createPartitionedTable(
+        table           = tmpl,
+        tableName       = s["tb"],
+        partitionColumns = `trade_date`ts_code,
+        compressMethods  = {trade_time: "delta"},
+        sortColumns      = `ts_code`trade_time,
+        keepDuplicates   = LAST
+    )
+    writeLog("[schema] Created table " + s["tb"])
+    return loadTable(s["db"], s["tb"])
+}
+
+def dropMinuteDB(){
+    s = minuteSchema()
+    if(existsDatabase(s["db"])){
+        dropDatabase(s["db"])
+        writeLog("[schema] Dropped " + s["db"])
+        print("Dropped " + s["db"])
+    } else {
+        print("Database does not exist.")
+    }
+}
